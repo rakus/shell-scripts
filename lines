@@ -1,0 +1,31 @@
+#!/bin/sh
+#
+# FILE: lines
+#
+# ABSTRACT:
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_dir=$(cd "$(dirname $0)" 2>/dev/null; echo "$PWD")
+script_name=$(basename $0)
+
+
+if [ $# -ne 1 ]; then
+    echo "Usage: $script_name <number-of-lines>"
+    exit 1
+elif [ "$1" = "max" ]; then
+    L=200
+elif [ $1 -eq $1 ] 2>/dev/null ; then
+    L=$1
+elif [ "$1" = "-" ]; then
+    L=32
+else
+    echo >&2 "Argument must be numeric."
+    exit 1
+fi
+
+eval "$(resize)"
+
+printf "[8;$L;${COLUMNS};t"
+

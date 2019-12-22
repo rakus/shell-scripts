@@ -1,0 +1,743 @@
+#!/bin/bash
+#
+# FILE: ext
+#
+# ABSTRACT: Extracts arbitrary archives
+#
+# Detects the file type of the archive from the output of the file command and
+# then used the appropriate program(s) to extract the files from the archive.
+# If the appropriate program is not installed, extract will fail.
+#
+# This script is for simple extract and listing only; if you need more control
+# use the un-packer program directly.
+#
+# Following functions are supported:
+#
+# * extract archive to current dir
+# * extract archive to given subdir
+# * extract archive to subdir derived from archive name (basename w/o ext)
+# * list archive content (if supported by (un-)archiver)
+# * test for needed (un-)archivers
+#
+# Parameter:
+#   -d <dir>
+#      Extracts the content of the archive(s) to the named directory. If
+#      multiple archives are given, all are extracted into the same dir.
+#
+#   -D
+#      Creates a directory from the file name of the archive
+#      (archive-extensions removed) and unpacks to this dir. If multiple
+#      archives are given, for each of it a own directory is created.
+#      Note: "ar.zip" and "ar.tar.gz" would both use the directory "ar".
+#
+#   -S
+#      Unpack the archive to a single directory. If the archive contains only
+#      one directory as root entry unpack it directly. If it contains several
+#      files and/or directories in the root, act like '-D' Not supported for
+#      all archive types (like gz), then acts like '-D'.
+#
+#   -l
+#      List content of the archive.
+#      Output is archiver-specific.
+#
+#   -L
+#      List only the root directory of the archive.
+#
+#   -T
+#      Test for needed programs.
+#      This only tests for existence of the programs not the version
+#      or capabilities.
+#
+#
+# AUTHOR: Ralf Schandl
+#
+
+# treat unset variables as error
+set -u
+
+# enable extended globbing pattern
+shopt -s extglob
+
+script_dir=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+script_name=$(basename "$0")
+
+export PATH="$script_dir:$PATH"
+
+# Definitions for supported file types.
+#
+# The type of file is detected using the command 'file -bzi'. Example:
+#    > file -bzi arch.tar.gz
+#    application/x-tar; charset=binary compressed-encoding=application/gzip; charset=binary
+#
+# The output is splitted into the mime-type (here "application/x-tar") and the
+# compression-type (here "application/gzip"). Based on this data the archive
+# type is composed by accessing the arrays 'mimeType' and 'compressionType'. See
+# function 'getCmd'.
+#
+# The commands are defined in the following arrays:
+#
+#    expandCmd: Commands to expand a archive.
+#
+#    listCmd:  Commands to list the array content. If listing is not supported
+#              set the entry to "" (aka empty string).
+#
+#    checkCmd: Commands to get filenames to determine the toplevel directories
+#              of the archive. If this is impossible, set the entry to "" (aka empty string).
+#
+# In the commands has two replacement tags:
+#   '%s' is replaced with the file name
+#   '%t' is replaced with the files basename without extension (/a/xx.gz -> xx)
+#
+# NOTE:
+# For 7Zip (7z), there is special handling. For a *.tar.7z file the 'file'
+# command can only determine that this is a 7z file, but not that it contains a
+# tar. There is special code in 'getCmd' to handle this.
+#
+
+typeset -A mimeType
+typeset -A compressionType
+
+typeset -A expandCmd
+typeset -A listCmd
+typeset -A checkCmd
+
+
+mimeType["application/java-archive"]=".zip"
+mimeType["application/vnd.debian.binary-package"]=".deb"
+mimeType["application/x-7z-compressed"]=".7z"
+mimeType["application/x-arj"]=".arj"
+mimeType["application/x-cpio"]=".cpio"
+mimeType["application/x-iso9660-image"]=".iso"
+mimeType["application/x-rar"]=".rar"
+mimeType["application/x-rpm"]=".rpm"
+mimeType["application/x-tar"]=".tar"
+mimeType["application/x-zoo"]=".zoo"
+mimeType["application/zip"]=".zip"
+#mimeType["application/octet-stream"]=""
+
+compressionType["application/gzip"]=".gz"
+compressionType["application/jar"]=".zip"
+compressionType["application/java-archive"]=".zip"
+compressionType["application/vnd.oasis.opendocument.text"]=".zip"
+compressionType["application/x-bzip2"]=".bz2"
+compressionType["application/x-compress"]=".Z"
+compressionType["application/x-lzip"]=".lz"
+compressionType["application/x-xz"]=".xz"
+compressionType["application/zip"]=".zip"
+
+
+expandCmd[".tar.gz"]="tar -xzvf %s"
+listCmd[".tar.gz"]="tar -tzvf %s"
+checkCmd[".tar.gz"]="tar -tzf %s"
+
+expandCmd[".tar.Z"]="tar -xzvf %s"
+listCmd[".tar.Z"]="tar -tzvf %s"
+checkCmd[".tar.Z"]="tar -tzf %s"
+
+expandCmd[".tar.bz2"]="tar -xjvf %s"
+listCmd[".tar.bz2"]="tar -tjvf %s"
+checkCmd[".tar.bz2"]="tar -tjf %s"
+
+expandCmd[".tar.7z"]="7z x -so %s | tar -xvf -"
+listCmd[".tar.7z"]="7z x -so %s | tar -tvf -"
+checkCmd[".tar.7z"]="7z x -so %s 2>/dev/null| tar -tf -"
+
+expandCmd[".tar.lz"]="lzip -dc %s | tar -xvf -"
+listCmd[".tar.lz"]="lzip -dc %s | tar -tvf -"
+checkCmd[".tar.lz"]="lzip -dc %s | tar -tf -"
+
+expandCmd[".tar.lzma"]="7z x -so %s | tar -xvf -"
+listCmd[".tar.lzma"]="7z x -so %s | tar -tvf -"
+checkCmd[".tar.lzma"]="7z x -so %s 2>/dev/null| tar -tf -"
+
+expandCmd[".tar.xz"]="tar -xJvf %s"
+listCmd[".tar.xz"]="tar -tJvf %s"
+checkCmd[".tar.xz"]="tar -tJf %s"
+
+expandCmd[".tar"]="tar -xvf %s"
+listCmd[".tar"]="tar -tvf %s"
+checkCmd[".tar"]="tar -tf %s"
+
+expandCmd[".cpio.gz"]="gzip -dc %s | cpio -ivdm"
+listCmd[".cpio.gz"]="gzip -dc %s | cpio -ivdm --list"
+checkCmd[".cpio.gz"]="gzip -dc %s|cpio -it"
+
+expandCmd[".cpio"]="cat %s | cpio -ivdm"
+listCmd[".cpio"]="cat %s | cpio -ivdm --list"
+checkCmd[".cpio"]="cat %s|cpio -it"
+
+expandCmd[".zip"]="unzip %s"
+listCmd[".zip"]="zipinfo %s"
+checkCmd[".zip"]="zipinfo -1 %s"
+
+expandCmd[".arj"]="arj x -y -v %s"
+listCmd[".arj"]="arj l -v -y %s"
+checkCmd[".arj"]="arj t -v -y %s|grep Testing|sed 's/^Testing //;s/ *OK//'"
+
+expandCmd[".rar"]="rar x %s"
+listCmd[".rar"]="rar v %s"
+checkCmd[".rar"]="rar vt %s | grep 'Name' | cut '-d:' -f2- | sed 's/^ //'"
+
+expandCmd[".7z"]="7z x %s"
+listCmd[".7z"]="7z l %s"
+checkCmd[".7z"]="7z l -slt %s|grep 'Path = '|tail -n +2|cut '-d ' -f3"
+
+expandCmd[".zoo"]="zoo -extract %s"
+listCmd[".zoo"]="zoo -list %s"
+checkCmd[".zoo"]="zoo -test %s|head -n -1|grep OK|sed 's/^Zoo: *//'|sed 's/^\.\?\///'"
+
+expandCmd[".rpm"]="rpm2cpio %s | cpio -ivdm"
+listCmd[".rpm"]="rpm2cpio %s | cpio -ivdm --list"
+checkCmd[".rpm"]="cat %s | cpio -idm --list 2>/dev/null"
+
+expandCmd[".deb"]="dpkg -X %s ."
+listCmd[".deb"]="dpkg -c %s"
+checkCmd[".deb"]="dpkg -c %s|sed 's/^.*\\.\\///'|grep -v '^$'"
+
+expandCmd[".iso"]="7z x %s"
+listCmd[".iso"]="7z l %s"
+checkCmd[".iso"]="7z l -slt %s|grep 'Path = '|tail -n +2|cut '-d ' -f3"
+
+expandCmd[".gz"]="gzip -cd %s > %t"
+listCmd[".gz"]="gzip -lv %s"
+checkCmd[".gz"]=""
+
+expandCmd[".Z"]="gzip -cd %s > %t"
+listCmd[".Z"]="gzip -tv %s"
+checkCmd[".Z"]=""
+
+expandCmd[".bz2"]="bzip2 -cd %s > %t"
+listCmd[".bz2"]="bzip2 -tv %s"
+checkCmd[".bz2"]=""
+
+expandCmd[".lz"]="lzip -cd %s > %t"
+listCmd[".lz"]="lzip -tv %s"
+checkCmd[".lz"]=""
+
+expandCmd[".xz"]="xz -cd %s > %t"
+listCmd[".xz"]="xz -tv %s"
+checkCmd[".xz"]=""
+
+expandCmd[".chm"]="archmage -x %s  ./%t_html"
+listCmd[".chm"]=""
+checkCmd[".chm"]=""
+
+function log
+{
+    [ "$verbose" -ge 1 ] && echo >&2 "INFO: $*"
+
+}
+
+function debug
+{
+    [ "$verbose" -ge 2 ] && echo >&2 "DEBUG: $*"
+}
+
+function trace
+{
+    [ "$verbose" -ge 3 ] && echo >&2 "TRACE: $*"
+}
+
+function error
+{
+    echo >&2 "ERROR: $*"
+}
+
+#
+# Checks if the given parameter is a function or program.
+# Uses prgOk and prgError as caches, so that each name is only checked once.
+#
+prgOk=""
+prgError=""
+function checkPrg
+{
+    typeset prg=$1
+
+    typeset OK_SUFFIX
+    typeset ERROR_SUFFIX
+
+    if [[ -t 1 ]]; then
+        OK_COL=34
+        ERR_COL=27
+        OK_SUFFIX="\033[${OK_COL}G[\033[01;32mOK\033[0m]"
+        ERROR_SUFFIX="\033[${ERR_COL}G[\033[01;31mNot Found\033[0m]"
+    else
+        OK_SUFFIX="\tOK"
+        ERROR_SUFFIX="\tNot Found"
+    fi
+
+
+    if [[ 1 -eq $(echo "$prgOk" | grep -c " $prg " 2>/dev/null) ]]; then
+        return 0
+    elif [[ 1 -eq $(echo "$prgError" | grep -c " $prg " 2>/dev/null) ]]; then
+        return 1
+    fi
+    if ! type "$c" >/dev/null 2>&1; then
+        prgError="$prgError $prg "
+        echo -e "$prg$ERROR_SUFFIX"
+        return 1
+    else
+        prgOk="$prgOk $prg "
+        echo -e "$prg$OK_SUFFIX"
+        return 0
+    fi
+}
+
+#
+# Checks for the needed programs.
+# This functions use the unpack command string and extracts the needed
+# programs from it. Then it uses the function 'checkPrg' to check if they are
+# installed.
+# No checks about version or capabilities are done.
+#
+function checkInstalledPackers
+{
+    echo "Checking programms ..."
+    typeset indent="    "
+    typeset -a supported
+    typeset -a unsupported
+    typeset -a sOptionUnsupported
+    for ft in "${!expandCmd[@]}"; do
+
+        # unpack command
+        typeset cmdStr="${expandCmd[$ft]}|${checkCmd[$ft]}|${listCmd[$ft]}"
+
+        typeset sOptionCmd="${checkCmd[$ft]}"
+
+        # strip leading spaces and append '|' for easier handling
+        typeset cmd="${cmdStr#"${cmdStr%%[![:space:]]*}"}|"
+        # remove spaces around '|'
+        cmd="${cmd//*( )|*( )/|}"
+        # remove args: strip from first space (after prg) to '|'
+        cmd="${cmd// *([!|])|/|}"
+        # replace '|' with space
+        cmd="${cmd//|/ }"
+        # remove trailing spaces
+        cmd="${cmd%"${cmd##*[![:space:]]}"}"
+
+        #echo >&2 "1: >>$cmdStr<<"
+        #echo >&2 "2: >>$cmd<<"
+
+        # We should now have a string containing prg names divided
+        # by a space
+
+        # Check programs
+        missingCmd=()
+        for c in $cmd; do
+            if ! checkPrg "$c"; then
+                missingCmd+=( "$c" )
+            fi
+        done
+
+        if [[ -z "$sOptionCmd" ]]; then
+            sOptionUnsupported+=( "$ft" );
+        fi
+
+        if [ "${#missingCmd[*]}" -eq 0 ]; then
+            supported+=( "$ft" )
+        else
+            # shellcheck disable=SC2207
+            IFS=$'\n' missingCmd=($(sort <<<"${missingCmd[*]}"))
+            unsupported+=( "$ft (Missing: ${missingCmd[*]})" )
+        fi
+    done
+
+    # shellcheck disable=SC2207
+    IFS=$'\n' supported=($(sort <<<"${supported[*]-}"))
+    # shellcheck disable=SC2207
+    IFS=$'\n' unsupported=($(sort <<<"${unsupported[*]-}"))
+    # shellcheck disable=SC2207
+    IFS=$'\n' sOptionUnsupported=($(sort <<<"${sOptionUnsupported[*]-}"))
+
+    echo ""
+    echo "SUPPORTED"
+    for s in "${supported[@]-"--"}"; do
+        echo "$indent$s"
+    done
+    echo
+    echo "NOT SUPPORTED"
+    for s in "${unsupported[@]-"--"}"; do
+        echo "$indent$s"
+    done
+    echo
+
+    echo "Option '-S' (see help) not supported for:"
+    for s in "${sOptionUnsupported[@]-"--"}"; do
+        echo "$indent$s"
+    done
+}
+
+function getExtension
+{
+    typeset fn=$1
+
+    while true; do
+        nfn="${fn#?*.}"
+        if [ "$nfn" = "${fn}" ]; then
+            break
+        fi
+        fn="$nfn"
+
+        if [ -n "${expandCmd[.$fn]+exists}" ]; then
+            trace "$fn: extension found"
+            echo ".$fn"
+            return
+        fi
+    done
+}
+
+function getFileType
+{
+    typeset typ="$1"
+    typeset compTyp="$2"
+    typeset ext
+
+    if [ -z "${mimeType[$typ]+exists}" ]; then
+        trace "$typ: mimetype not found"
+        ext=""
+    else
+        ext="${mimeType[$typ]}"
+        trace "$typ: mimetype exists - ext: $ext"
+    fi
+
+    if [ -n "$compTyp" ]; then
+        if [ -z "${compressionType[$compTyp]+exists}" ]; then
+            trace "$compTyp: compression type not found"
+            return 1
+        fi
+        ext="$ext${compressionType[$compTyp]}"
+        trace "$compTyp: compression type found - ext: $ext"
+    fi
+
+    echo "$ext"
+}
+
+#
+# Determines the command needed to extract or list the content of the given
+# file.
+# Parameter:
+# 1) Name of the archive file
+#
+function getCmd
+{
+    unset extractCmd listingCmd dircheckCmd
+
+    typeset name="$1"
+    #typeset basename=$(basename "$name")
+
+    # create an absolute path to the archive
+    if [[ $name =~ ^/ ]]; then
+        # absolut path
+        fqName="$name"
+    else
+        fqName=$(readlink -f "$PWD/$name")
+    fi
+
+    typeset ftTxt=$(LC_ALL=C file -bzi "$fqName" 2>/dev/null)
+
+    typeset fTyp=$(echo "$ftTxt" | cut '-d;' -f1)
+    typeset fCompression=$(echo "$ftTxt" | grep compressed-encoding=|sed "s/^.* compressed-encoding=//"| cut '-d;' -f1)
+
+    debug "$name: mime-type: '$fTyp', compressed-encoding: '$fCompression'"
+
+    ext="$(getFileType "$fTyp" "$fCompression")"
+
+    if [ -z "$ext" ]; then
+        ext=$(getExtension "$name")
+        trace "fileext >>$ext<<"
+        if [ -z "$ext" ]; then
+            error "$name: Cannot determine file type (mime-type: '$fTyp', compressed-encoding: '$fCompression')"
+            return 1
+        fi
+    fi
+
+    #
+    # Special handling for 7z, as the file command can't look into 7z archives.
+    #
+    if [ "$ext" = ".7z" ]; then
+        trace "File type ext: >>$ext<<"
+        case "$name" in
+            *.tar.7z)
+                ext=".tar.7z"
+                ;;
+            *.t7z)
+                ext=".tar.7z"
+                ;;
+        esac
+    fi
+    trace "File type ext: >>$ext<<"
+
+    if [ -z "${expandCmd[$ext]+exists}" ]; then
+        trace "$ext: no command found"
+        while [ "$(echo "$ext" | tr -cd "." | wc -c)"  -gt 1 ]; do
+            #ext=$(echo "$ext" | sed 's/\.[^\.]*//')
+            ext="${ext/.*([!.])/}"
+            trace "$ext: checking..."
+            if [ -n "${expandCmd[$ext]+exists}" ]; then
+                break
+            fi
+        done
+        if [ -z "${expandCmd[$ext]+exists}" ]; then
+            error "$name: No unpack command for file type: $ext (mime-type: '$fTyp', compressed-encoding: '$fCompression')"
+            return 1
+        fi
+    fi
+    trace "$ext: found"
+
+    debug "file-type: $ext"
+    extractCmd="${expandCmd[$ext]}"
+    listingCmd="${listCmd[$ext]}"
+    dircheckCmd="${checkCmd[$ext]}"
+    debug "extractCmd   $extractCmd"
+    debug "listingCmd   $listingCmd"
+    debug "dircheckCmd  $dircheckCmd"
+
+    # insert archive name into command strings
+    extractCmd="${extractCmd//%s/"'$fqName'"}"
+    listingCmd="${listingCmd//%s/"'$fqName'"}"
+    dircheckCmd="${dircheckCmd//%s/"'$fqName'"}"
+
+    tgtName=$(basename "$name" | sed 's/\.[^\.][^\.]*$//')
+
+    # insert target name into command strings
+    extractCmd="${extractCmd//%t/"'$tgtName'"}"
+    listingCmd="${listingCmd//%t/"'$tgtName'"}"
+    dircheckCmd="${dircheckCmd//%t/"'$tgtName'"}"
+
+    debug "formatted extractCmd   $extractCmd"
+    debug "formatted listingCmd   $listingCmd"
+    debug "formatted dircheckCmd  $dircheckCmd"
+
+    return 0
+}
+
+
+#
+# Checks if the archive has a single root dir or if it contains multiple files
+# in its root.
+# Uses the already prepared command $dircheckCmd and parses output.
+#
+function determineSingleDir
+{
+    if [[ -z "$dircheckCmd" ]]; then
+        mode="basenameDir"
+        echo "'-S' not supported for this archive type -> acting like '-D'"
+        return
+    fi
+
+    x=$(eval "$dircheckCmd" | cut -d/ -f1 | uniq | wc -l)
+
+    if [[ $x -eq 1 ]]; then
+        return 0
+    else
+        echo "Multiple entries in archive root -> acting like '-D'"
+        mode="basenameDir"
+    fi
+}
+
+# Change to given directory
+# Exit with exit code 1 if that fails
+function chgdir
+{
+    dir=$1
+    if ! cd "$dir"; then
+        error "Can't change to \"$dir\""
+        exit 1
+    fi
+}
+
+# Creates the named directory
+# Exit with exit code 1 if that fails
+function makedir
+{
+    dir=$1
+
+    if [[ -e "$dir" ]]; then
+        if [[ -d "$dir" ]]; then
+            # dir exists -- nothing to do
+            return 0
+        else
+            error "Can't create directory \"$dir\" - file of same name exists"
+            exit 1
+        fi
+    fi
+    if ! mkdir -p "$dir"; then
+        error "Can't create directory \"$dir\""
+        exit 1
+    fi
+}
+
+#
+# To be used as list command, if archive content can't be listed.
+#
+function listUnsupported
+{
+    echo >&2 "$1: Listing content not supported for this archive type."
+}
+
+
+function show_version
+{
+    echo "$script_name V1.1"
+}
+
+function show_help
+{
+    echo "Extracts arbitrary archives"
+    echo "Usage: $script_name [-d dir | -D | -S | -l | -L | -T] [-v] archive ..."
+    echo ""
+    echo " -d <dir>  Extracts the content of the archiv(s) to the named directory. If"
+    echo "           multiple archives are given, all are extracted into the same dir."
+    echo ""
+    echo " -D        Creates a directory from the file name of the archive"
+    echo "           (archive-extensions removed) and unpacks to this dir.  If multiple"
+    echo "           archives are given, for each of it a own directory is created."
+    echo "           Note: 'archive.zip' and 'archive.tar.gz' would both use the"
+    echo "           directory 'archive'."
+    echo ""
+    echo " -S        Unpack the archive to a single directory. If the archive contains"
+    echo "           only one directory as root entry unpack it directly, else act like"
+    echo "           '-D'"
+    echo "           Always acts like '-D' for single file archives like: .gz, .Z,"
+    echo "           .bz2, .lz, .chm"
+    echo "           Note: Slower as archive has to be scanned before unpacking."
+    echo ""
+    echo " -l        List content of the archive. Output is archiver-specific."
+    echo ""
+    echo " -L        List only the root directory of the archive."
+    echo ""
+    echo " -T        Test for needed programms. This only tests for existence of the"
+    echo "           programs not the version or capabilities."
+    echo ""
+    echo " -v        Verbose. Use multiple times to increase verbosity."
+    echo ""
+    echo "Note: With gzip and bzip2 the compressed file is kept."
+    echo ""
+    echo "Test with ext -T for supported archive types in your environment."
+    echo ""
+
+    exit 0
+}
+
+#---------[ MAIN ]-------------------------------------------------------------
+
+if [[ $# -eq 0 ]]; then
+    show_help
+fi
+
+typeset -i verbose=0
+tgtDir=
+pargs=$(parseargs -ign ERROR -o "l#mode=listMode,L#mode=topLevelList,T#mode=testPackers,d=tgtDir,D#mode=basenameDir,S#mode=singleDir,v+verbose" -- "$@")
+#echo >&2 "========================="
+#echo >&2 "$pargs"
+#echo >&2 "========================="
+eval "$pargs" || exit 1
+
+if [ "$mode" = "testPackers" ]; then
+    checkInstalledPackers
+    exit 0
+fi
+
+if [ "$tgtDir" ] && [ $mode ]; then
+    echo >&2 "Can't use '-d' with other options"
+    exit 1
+fi
+
+if [[ $# -eq 0 ]]; then
+    error "No archives given"
+    exit 1
+fi
+
+scriptRC=0
+startDir=$PWD
+for archive in "$@"; do
+    if [[ ! -e "$archive" ]]; then
+        error "File not found: $archive"
+        scriptRC=1
+        break
+    fi
+
+
+    # get the needed command
+    if ! getCmd "$archive"; then
+        scriptRC=1
+        break
+    fi
+
+    weCreatedTargetDir=false
+
+    if [ "$mode" = "singleDir" ]; then
+        determineSingleDir
+    fi
+
+    # Create the targetdir if requested
+    # If targetdir is "-D" the directory name is created from the
+    # name of the archive (archive extension removed).
+    if [ "$mode" = "basenameDir" ]; then
+        tgtDir="${archive/%.*([!.])/}"
+        tgtDir="$(basename "$tgtDir" .tar)"
+
+        if [[ ! -d "$tgtDir" ]]; then
+            echo "Creating directory \"$tgtDir\" ... "
+            makedir "$tgtDir"
+            weCreatedTargetDir=true
+        fi
+
+    elif [[ -n "$tgtDir" && ! -d "$tgtDir" ]]; then
+        echo "Creating directory \"$tgtDir\" ... "
+        makedir "$tgtDir"
+        weCreatedTargetDir=true
+    fi
+
+    if [[ -n "$tgtDir" ]]; then
+        echo "Extracting \"$archive\" to \"$tgtDir\""
+        cmd=$extractCmd
+    elif [ "$mode" = "listMode" ]; then
+        echo "Listing \"$archive\""
+        cmd="$listingCmd"
+    elif [ "$mode" = "topLevelList" ]; then
+        echo "Listing top-level directories of \"$archive\""
+        if [[ -z "$dircheckCmd" ]]; then
+            echo "'-L' not supported for this archive type"
+            exit 1
+        fi
+        cmd="$dircheckCmd | cut -d/ -f1 | sort -u"
+
+    else
+        echo "Extracting \"$archive\""
+        cmd=$extractCmd
+    fi
+
+    # Change to the target directory, execute command  and cd back
+    [[ -n "$tgtDir" ]] && chgdir "$tgtDir"
+    log "Command: $cmd"
+    eval "$cmd"
+    rc=$?
+    if [[ -n "$tgtDir" ]]; then
+        chgdir "$startDir"
+        echo "Unpacked into directory \"$tgtDir\""
+    fi
+
+    # If an error was reported during extraction set the scriptRC and try
+    # to remove the target directory if we created it.
+    if [[ $rc -ne 0 ]]; then
+
+        scriptRC=1
+
+        if [[ $weCreatedTargetDir && -d "$tgtDir" ]]; then
+            if rmdir "$tgtDir" 2>/dev/null; then
+                echo "Removed directory \"$tgtDir\" after unpack error"
+            else
+                # deleting dir failed
+                # Most likely because it is not empty
+                error "Deleting target directory \"$tgtDir\" after unpack error failed. Some files might be extracted"
+            fi
+        fi
+
+        break
+    fi
+    echo ""
+done
+
+exit $scriptRC
+

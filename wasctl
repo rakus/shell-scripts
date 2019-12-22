@@ -1,0 +1,624 @@
+#!/bin/bash
+#
+# FILE: wasctl
+#
+# ABSTRACT: A WAS ND control script (start, stop etc)
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_dir="$(dirname "$(readlink -f "$0")")"
+script_name="$(basename "$0")"
+
+# might be overwritten in the config file.
+RUNAS_USER=root
+
+CFG_FILE="$script_dir/$(basename "$script_name" .sh).cfg"
+
+if [[ -r "$CFG_FILE" ]]; then
+    # shellcheck disable=SC1090
+    . "$CFG_FILE"
+elif [[ $1 != "createScriptConfig" ]]; then
+    echo >&2 ""
+    echo >&2 "Configuration file $CFG_FILE not found."
+    echo >&2 "You have to create it."
+    echo >&2 ""
+    echo >&2 "Call: $script_name createScriptConfig <WAS install path>"
+    echo >&2 ""
+    exit 1
+fi
+
+section()
+{
+    echo ""
+    echo "========================================================="
+    echo "  " "$@"
+    echo "========================================================="
+}
+
+debug()
+{
+    echo >&2 "DEBUG: $*"
+}
+
+#
+# trim leading and trailing whitespaces from given string
+# $1: The String to trim
+#
+trim() {
+    local var=$1
+    var="${var#"${var%%[![:space:]]*}"}"   # remove leading whitespace
+    var="${var%"${var##*[![:space:]]}"}"   # remove trailing whitespace
+    echo -n "$var"
+}
+
+#
+# Sleep for the given number of seconds
+# $1: sleep time in seconds
+#
+countdown()
+{
+    # shellcheck disable=SC2155
+    local curTime=$(date +%s)
+    local endTime=$(( curTime + $1 ))
+    while [[ $curTime -lt $endTime ]]; do
+        local rest=$(( endTime - curTime ))
+        printf "\rSleeping %d seconds" $rest
+        sleep 1
+        curTime=$(date +%s)
+    done
+    printf "\rWake up \e[K"
+}
+
+
+#
+# Get the process id of the given server. Does not work for nodeagents
+# $1: Name of server
+#
+getServerPid()
+{
+    local srv=$1
+    # shellcheck disable=SC2154  # set in cfg file
+    cat "${ServerLogPath[$srv]}/$srv.pid" 2>/dev/null
+}
+
+#
+# get server name for given parameter
+# If it is a profile, print all servers in profile
+# If it is a server name, print that
+# else print nothing
+# $1: name of profile or server
+getServer()
+{
+    if [ -n "${Server[$1]}" ]; then
+        echo "${Server[$1]}"
+    elif [ -n "${ServerProfile[$1]}" ]; then
+        echo "$1"
+    else
+        echo >&2 "Can't identify server(s): $1"
+    fi
+}
+
+#
+# Wait for server to finish shutdown
+# $1: Name of server
+# $2: Optional: pid of server. If not given pid is determined using server name.
+#
+# Note: if $2 is given, name can be anything. It is only used for message then.
+#
+waitServerDown()
+{
+    local srv=$1
+    local pid
+    if [[ $# -gt 1 ]]; then
+        pid=$2
+    else
+        pid=$(getServerPid "$srv")
+    fi
+    echo -n "Waiting for server shutdown $srv($pid) "
+    if [[ -n "$pid" ]]; then
+        while ps "$pid" >/dev/null; do
+            echo -n "."
+            sleep 1
+        done
+    fi
+    echo " DOWN"
+}
+
+#
+# Checks if the node agent for the profile is running.
+#
+isDMgrRunning()
+{
+    local srv=${Server[$DMGR]}
+
+    pid=$(cat "${ProfilePath[$DMGR]}/logs/$srv/$srv.pid" 2>/dev/null)
+    if [[ -z "$pid" ]]; then
+        return 1
+    fi
+    ps "$pid" >/dev/null
+    return $?
+}
+
+#
+# Checks if the node agent for the profile is running.
+# $1: Profile name
+#
+isNodeagentRunning()
+{
+    local profile=$1
+    pid=$(cat "${ProfilePath[$profile]}/logs/nodeagent/nodeagent.pid" 2>/dev/null)
+    if [[ -z "$pid" ]]; then
+        return 1
+    fi
+    ps "$pid" >/dev/null
+    return $?
+}
+
+#
+# Check if a server is running. Doesn't work for nodeagents.
+# $1: Server name
+#
+isServerRunning()
+{
+    local srv=$1
+    # shellcheck disable=SC2155
+    local pid=$(getServerPid "$srv")
+    if [[ -z "$pid" ]]; then
+        return 1
+    fi
+    ps "$pid" >/dev/null
+    return $?
+}
+
+#
+# Starts the deployment manager
+#
+startDmgr()
+{
+    section "Starting Deployment Manager..."
+    "${ProfilePath[$DMGR]}/bin/startManager.sh"
+}
+
+#
+# Stops the deployment manager.
+#
+stopDmgr()
+{
+    section "Stopping Deployment Manager..."
+    "${ProfilePath[$DMGR]}/bin/stopManager.sh"
+    local srv=${Server[$DMGR]}
+    waitServerDown "$srv"
+}
+
+#
+# Start the node agent for a profile.
+# $1: Profile name
+#
+startNode()
+{
+    section "Starting NodeAgent for $1..."
+    if isDMgrRunning; then
+        local profile=$1
+        "$WASPATH/bin/startNode.sh" -profileName "$profile"
+    else
+        echo >&2 "Deployment Manager seems to be down -- can't start node"
+    fi
+}
+
+#
+# Stops the node agent for a profile.
+# $1: Profile name
+#
+stopNode()
+{
+    local profile=$1
+    section "Stopping NodeAgent for $profile..."
+
+    "$WASPATH/bin/stopNode.sh" -profileName "$profile"
+    # shellcheck disable=SC2155
+    local pid=$(cat "${ProfilePath[$profile]}/logs/nodeagent/nodeagent.pid" 2>/dev/null)
+    waitServerDown "$profile.nodeagent" "$pid"
+}
+
+#
+# Starts the named server.
+# $1: server name
+#
+startServer()
+{
+    section "Starting server $1 ..."
+
+    local srv=$1
+    local profile
+    if [[ $# == 2 ]]; then
+        profile=$2
+    else
+        profile="${ServerProfile[$srv]}"
+    fi
+    if [[ $(echo "$profile"|tr -d " ") != "$profile" ]]; then
+        echo "Server $srv exists in multiple profiles ($profile). "
+        exit 1
+    fi
+
+    if isNodeagentRunning "$profile"; then
+        "$WASPATH/bin/startServer.sh" -profileName "$profile" "$srv"
+    else
+        echo >&2 "Node agent for profile $profile seems to be down -- can't start node"
+    fi
+}
+
+#
+# Stops the named server.
+# $1: server name
+#
+stopServer()
+{
+    section "Stopping server $1 ..."
+
+    local srv=$1
+    local profile
+    if [[ $# == 2 ]]; then
+        profile=$2
+    else
+        profile="${ServerProfile[$srv]}"
+    fi
+    if [[ $(echo "$profile"|tr -d " ") != "$profile" ]]; then
+        echo "Server $srv exists in multiple profiles ($profile). "
+        exit 1
+    fi
+    "$WASPATH/bin/stopServer.sh" -profileName "$profile" "$srv"
+    waitServerDown "$srv"
+}
+
+#
+# Handle restart.
+# cell: restart entire cell
+# profile name: Restart nodeagent and servers
+# server name: Restart server
+#
+#
+restart()
+{
+    type -A targets
+    for t in "$@"; do
+        target[$t]=1
+    done
+
+    if [[ -n "${target['cell']}" ]]; then
+        # restart cell
+        stopCell
+        countdown 10
+        startCell
+    else
+        echo "Only cell restart implemented yet"
+        # determine all profiles and remove associated servers
+
+
+        # restart profiles
+
+        # restart servers
+    fi
+}
+
+#
+# Starts the entire cell (dmgr, nodeagents, servers)
+#
+startCell()
+{
+    startDmgr
+    sleep 5 # give dmgr a few seconds to stabilize
+    for p in "${Profiles[@]}"; do
+        [[ $p = "$DMGR" ]] && continue
+        startNode "$p"
+        sleep 3
+        for s in ${Server[$p]}; do
+            [[ $p = nodeagent ]] && continue
+            startServer "$s" "$p"
+        done
+    done
+}
+
+#
+# Stops the entire cell (dmgr, nodeagents, servers)
+#
+stopCell()
+{
+    for p in "${Profiles[@]}"; do
+        [[ $p == "$DMGR" ]] && continue
+        for s in ${Server[$p]}; do
+            [[ $s == nodeagent ]] && continue
+            stopServer "$s" "$p"
+        done
+        stopNode "$p"
+    done
+
+    stopDmgr
+}
+
+#
+# Handle start command
+#
+doStart()
+{
+    if [[ "$1" == "cell" ]]; then
+        startCell
+    else
+        # shellcheck disable=SC2155
+        local servers=$(getServer "$1")
+        if [ -n "$servers" ]; then
+            local srv
+            for srv in $servers; do
+                startServer "$srv"
+            done
+        else
+            exit 1
+        fi
+    fi
+}
+
+#
+# Handle stop command
+#
+doStop()
+{
+    if [[ "$1" == "cell" ]]; then
+        stopCell
+    else
+        # shellcheck disable=SC2155
+        local servers=$(getServer "$1")
+        if [ -n "$servers" ]; then
+            local srv
+            for srv in $servers; do
+                stopServer "$srv"
+            done
+        else
+            exit 1
+        fi
+    fi
+}
+
+#
+# Get status of the cell. Print RUNNING/STOPPED for every server.
+#
+getStatus()
+{
+    isDMgrRunning
+    printServerStatus $? "Deployment Manager"
+    local p
+    for p in "${Profiles[@]}"; do
+        [ "$p" = "$DMGR" ] && continue
+        isNodeagentRunning "$p"
+        printServerStatus $? "NodeAgent (Profile $p)"
+
+        for srv in ${Server[$p]}; do
+            isServerRunning "$srv"
+            printServerStatus $? "Server: $srv"
+        done
+    done
+
+}
+
+#
+# Print server status of a server
+# $1: '0': Started, !='0: Stopped
+# $2: Server name
+printServerStatus()
+{
+    if [[ $1 = 0 ]]; then
+        echo "RUNNING  $2"
+    else
+        echo "STOPPED  $2"
+    fi
+}
+
+#
+# Show collected information
+#
+showInfo()
+{
+    echo ""
+    echo ""
+    echo "Deployment Manager"
+    echo "    Profile: $DMGR"
+    echo "    Server:  ${Server[$DMGR]}"
+    echo "    Path:    ${ProfilePath[$DMGR]}"
+
+    for prof in "${Profiles[@]}"; do
+        [ "$prof" = "$DMGR" ] && continue
+        echo ""
+        echo "Profile: $prof"
+        echo "    Server:  ${Server[$prof]}"
+        echo "    Path:    ${ProfilePath[$prof]}"
+    done
+    echo ""
+    echo "All commands are run with user $RUNAS_USER"
+    echo ""
+
+}
+
+
+#
+# Create configuration file
+#
+createScriptCfg()
+{
+    if [[ -e "$CFG_FILE" ]]; then
+        echo >&2 "Config file $CFG_FILE exists."
+        echo >&2 "Cowardly refusing to overwrite file. Remove file and try again."
+        exit 1
+    fi
+
+    WASPATH=$1
+    if [ ! -e "$WASPATH/bin/startManager.sh" ]; then
+        echo >&2 "ERROR: Not a WAS NetworkDeployment install path: $WASPATH"
+        exit 1
+    fi
+
+
+    # get informations
+    echo "Fetching profile names ..."
+    typeset -a Profiles
+    # shellcheck disable=SC2155,SC2207
+    Profiles=( $("$WASPATH/bin/manageprofiles.sh" -listProfiles | tr -d "[],") )
+    typeset -A ProfilePath
+    typeset -A Server
+    typeset -A ServerProfile
+    for p in "${Profiles[@]}"; do
+        echo "Getting dir for profile $p ..."
+        ProfilePath[$p]=$("$WASPATH/bin/manageprofiles.sh" -getPath -profileName "$p")
+        echo "Getting server for profile $p ..."
+        Server[$p]=$("${ProfilePath[$p]}/bin//serverStatus.sh" -all | grep "^ADMU0506I" | sed "s/^.* //;s/ .*//;s/^M/ /" | grep -v nodeagent | awk '{printf "%s ", $1}')
+        for s in ${Server[$p]}; do
+            ServerProfile[$s]=$(trim "${ServerProfile[$s]} $p")
+        done
+        if [[ -e ${ProfilePath[$p]}/bin/startManager.sh ]]; then
+            DMGR=$p
+        fi
+    done
+
+    if [ -z "$DMGR" ]; then
+        echo >&2 "ERROR: Could not identify DeploymentManager. Is this a ND installation?"
+        exit 1
+    fi
+
+    # Write the config file
+    echo "Writing config file $CFG_FILE ..."
+    (
+    if [ -n "$SUDO_USER" ]; then
+        echo "RUNAS_USER=$USER"
+    else
+        echo "#RUNAS_USER=root"
+    fi
+    echo ""
+    echo "WASPATH=$WASPATH"
+    echo ""
+    echo "typeset -a Profiles"
+    echo "Profiles=( ${Profiles[*]} )"
+    echo ""
+    echo "DMGR=$DMGR"
+    echo ""
+    echo "typeset -A ProfilePath"
+    for p in ${!ProfilePath[*]}; do
+        echo "ProfilePath['$p']='${ProfilePath[$p]}'"
+    done
+    echo ""
+    echo "typeset -A Server"
+    for p in ${!Server[*]}; do
+        echo "Server['$p']='$(trim "${Server[$p]}")'"
+    done
+    echo ""
+    echo "typeset -A ServerProfile"
+    for p in ${!ServerProfile[*]}; do
+        echo "ServerProfile['$p']='${ServerProfile[$p]}'"
+    done
+    echo ""
+    echo "typeset -A ServerLogPath"
+    for s in ${!ServerProfile[*]}; do
+        echo "ServerLogPath['$s']='${ProfilePath[${ServerProfile[$s]}]}/logs/$s'"
+    done
+    echo ""
+    ) > "$CFG_FILE"
+
+    echo ""
+    echo "==================================================================="
+    echo ""
+    echo "Written config file $CFG_FILE."
+    echo "Please review (expecially RUNAS_USER and ServerLogPaths)!"
+    echo ""
+    echo "==================================================================="
+
+    # create callback file if not present
+}
+
+typeset -a ORG_ARGS
+ORG_ARGS=( "$@" )
+
+needRunAs()
+{
+    if [[ $(id -un) != "$RUNAS_USER" ]]; then
+        echo "Need user $RUNAS_USER - sudoing..."
+        exec sudo -u $RUNAS_USER WASCTL_SUDO=1 "$script_dir/$script_name" "${ORG_ARGS[@]}"
+    fi
+}
+
+
+cmd=$1
+shift
+
+[ -z "$WASCTL_SUDO" ] && echo "CMD: >$cmd<"
+
+case $cmd in
+    start)
+        needRunAs
+        if [[ $# -lt 1 ]]; then
+            echo >&2 "What to start?"
+            echo >&2 "   \"cell\": Start entire cell"
+            echo >&2 "   profile name: Start all servers in profile"
+            echo >&2 "   server name: Start server"
+            echo >&2 ""
+            exit 1
+        else
+            doStart "$@"
+        fi
+        ;;
+    stop)
+        needRunAs
+        if [[ $# -lt 1 ]]; then
+            echo >&2 "What to stop?"
+            echo >&2 "   \"cell\": Stop entire cell"
+            echo >&2 "   profile name: Stop all servers in profile"
+            echo >&2 "   server name: Stop server"
+            echo >&2 ""
+            exit 1
+        else
+            doStop "$@"
+        fi
+        ;;
+    restart)
+        needRunAs
+        if [[ $# -lt 1 ]]; then
+            echo >&2 "What to restart?"
+            echo >&2 "   \"cell\": Restart entire cell"
+            echo >&2 "   profile name: Restart all servers in profile"
+            echo >&2 "   server name: Restart server"
+            echo >&2 ""
+            exit 1
+        else
+            doStop "$@"
+            sleep 3
+            doStart "$@"
+        fi
+        ;;
+    status)
+        # get Cell status
+        getStatus
+        ;;
+    info)
+        # print collected cell info
+        showInfo
+        ;;
+    createScriptConfig)
+        createScriptCfg "$@"
+        ;;
+    *)
+        echo ""
+        echo "Usage: $script_name <command> [command parameter]"
+        echo ""
+        echo "Commands:"
+        echo ""
+        echo "  start <target>"
+        echo "     Start target. Target is either \"cell\", profile or server name"
+        echo "  stop  <target>"
+        echo "     Stop target. Target is either \"cell\", profile or server name"
+        echo "  restart <target>"
+        echo "     Stop/Start target. Target is either \"cell\", profile or server name"
+        echo "  status"
+        echo "     Print status of all servers"
+        echo "  info"
+        echo "     Print info on configured cell"
+        echo ""
+        ;;
+esac
+
+

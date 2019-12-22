@@ -1,0 +1,100 @@
+#!/bin/bash
+#
+# FILE: httpcheck
+#
+# ABSTRACT: Checks if a URL is accessible using wget
+#
+# Tries to access a URL using wget. If this fails the script loops until
+# the URL is reached. Timeout between retries is 60 seconds by default.
+# If the address is reached, a popup is displayed and the URL is loaded
+# into firefox.
+#
+# Usage: httpcheck [-t timeout] URL
+#
+# URL:
+#     The URL to contact
+#
+# Timeout between retries:
+#     Time in seconds to wait before retrying to contact the URL.
+#     Default 60 seconds
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_name=$(basename "$0")
+
+timeout_default=60
+
+Countdown()
+{
+    to=$1
+    step=10
+
+    endmsg="Retrying"
+
+    endTime=$(( $(date +%s) + to ))
+
+    curTime=$(date +%s)
+
+    quit=false
+    trap "quit=true" 3
+
+    while [ "$curTime" -lt "$endTime" ]; do
+        rest=$(( endTime - curTime ))
+        if [ $rest -lt 31 ]; then
+            step=1
+        elif [ $rest -lt 61 ]; then
+            step=5
+        fi
+        printf "\rRetry in %d seconds..." $rest
+        sleep $step
+        curTime=$(date +%s)
+        if [ $quit = true ]; then
+            echo -e "\rCountdown canceled\e[K"
+            break
+        fi
+    done
+    trap  3
+
+    echo -e "\r${endmsg}\e[K"
+}
+
+#---------[ main ]-------------------------------------------------------------
+timeout=$timeout_default
+
+eval "$(parseargs -o 't=timeout:Rr=[1-9][0-9]*' -- "$@")" || exit 1
+
+if [ $# -eq 0 ]; then
+    echo >&2 "Usage: $script_name [-t timeout] URL "
+    echo >&2 "   -t timeout  time between retries in seconds"
+    echo >&2 "               Default: 60sec"
+    exit 1
+fi
+
+adr=$1
+
+while true; do
+
+    echo "-------------------------------------------"
+    date
+
+    wget -T 10 -t 1 -O- --no-check-certificate "$adr" >/dev/null
+    rc=$?
+    echo "wget returned $rc"
+    if [ $rc -eq 0 ]; then
+        break
+    elif [ $rc -eq 2 ]; then
+        echo >&2 "wget parsing error. Check URL parameter and .wgetrc (if existing)"
+        exit 1
+    fi
+
+    Countdown $timeout
+
+done
+
+echo "$adr reached"
+zenity --title="HTTP-Check $adr" --info --text="$adr reached" 2>/dev/null &
+
+firefox "$adr" &
+
+

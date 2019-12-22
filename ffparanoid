@@ -1,0 +1,106 @@
+#!/bin/bash
+#
+# FILE: ffparanoid
+#
+# ABSTRACT: Start Firefox with copy of own profile and delete it afterwards
+#
+# Creating profiles with Firefox: firefox --no-remote -P
+#
+# 1) Create a profile to use a base for the special profile (set variable
+#    src_profile to name)
+#    Customize this profile as needed (less is better)
+# 2) Start ffparanoid
+#
+# The profile directory is copied from the profile "Paranoid" before Firefox is
+# started. After firefox exits the copied profile directory will be deleted.
+#
+# Use 'ffparanoid --update' to start firefox with the base profile. ONLY use
+# this to do permanent changes to the base profile.
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_name=$(basename "$0")
+
+# Basedirectory for profiles
+ff_dir=$(readlink -e "$HOME/.mozilla/firefox")
+if [ -z "$ff_dir" ]; then
+    echo >&2 "$HOME/.mozilla/firefox does not exist"
+    exit 1
+fi
+
+# Create the directories for temporary ff instances in this directory.
+#TMP_PROFILE_BASE=/dev/shm/ffparanoid
+TMP_PROFILE_BASE=/run/user/$(id -u)/ffparanoid
+
+if [ ! -e "$TMP_PROFILE_BASE" ]; then
+    mkdir "$TMP_PROFILE_BASE"
+fi
+
+# Name Profile to copy to the new profile. Must exist in $ff_dir/profiles.ini
+src_profile="Paranoid"
+
+show_help()
+{
+    echo "Usage:"
+    echo "  $script_name [--update]"
+    echo ""
+    echo "     --update: se to update to new firefox version"
+    echo ""
+    exit 0
+}
+
+show_version()
+{
+    echo "$script_name V3"
+}
+
+update=
+cmd=$(parseargs -go "update#update" -- "$@")
+eval "$cmd" || exit 1
+
+if [ "$update" ]; then
+    firefox -P $src_profile --no-remote "$@"
+    exit 0
+fi
+
+# Extract profile path of source profile
+src_profile_path=$(grep -A10 "Name=$src_profile" "$ff_dir/profiles.ini"  | grep "^Path" | head -n 1 |  sed "s/^Path=//")
+if [ -z "$src_profile_path" ]; then
+    zenity --error --test="Source profile $src_profile not found. You need to create it" 2>/dev/null
+    exit 1
+fi
+src_profile_path=$ff_dir/$src_profile_path
+
+
+#
+# Create a temporary profile path. Name must be same length as source path.
+# Needed because we later replace all occurences of the src_profile_path with
+# tgt_profile_path in all files (incl. binary).
+#
+src_len=${#src_profile_path}
+tgt_profile_path_pattern="$(echo "$TMP_PROFILE_BASE/TMP.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"|cut -c "1-$src_len")"
+
+# determine temporary profile path
+tgt_profile_path=$(mktemp -ud "$tgt_profile_path_pattern")
+
+if [ -e "$tgt_profile_path" ]; then
+    zenity --error --text="Profile path already exists: $tgt_profile_path" 2>/dev/null
+    exit 1
+fi
+
+#echo "src: $src_profile_path"
+echo "tgt: $tgt_profile_path"
+
+# Register handler to delete target profile path on exit
+# shellcheck disable=SC2064
+trap "rm -rf '$tgt_profile_path'" EXIT
+
+# copy source profile to target profile
+cp -r "$src_profile_path" "$tgt_profile_path"
+
+# Replace references to src directory with new target directory
+find "$tgt_profile_path" -type f -print0 | xargs -0 perl -pi -e "s%$src_profile_path%$tgt_profile_path%g"
+
+firefox -profile "$tgt_profile_path" --no-remote "$@"
+

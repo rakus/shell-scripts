@@ -1,0 +1,45 @@
+
+if [ ! $script_dir ] || [ ! $script_name ]; then
+    echo >&2 "Variables script_dir and script_name must be set"
+    exit 1
+fi
+
+echo "--------------------------------------"
+echo "Test script: $script_name"
+
+PATH=$script_dir/..:$PATH
+
+OK="[01;32mOK[0m"
+ERROR="[01;31mERROR[0m"
+WARN="[31mWARNING[0m"
+
+eval "$(resize)"
+if [ -n "$COLUMNS" ]; then
+    OK_COL=$(($COLUMNS-6))
+    ERR_COL=$(($COLUMNS-9))
+    WARN_COL=$(($COLUMNS-11))
+else
+    OK_COL=74
+    ERR_COL=71
+    WARN_COL=69
+fi
+OK_SUFFIX="[${OK_COL}G[[01;32mOK[0m]"
+ERROR_SUFFIX="[${ERR_COL}G[[01;31mERROR[0m]"
+WARN_SUFFIX="[${WARN_COL}G[[31mWARNING[0m]"
+
+printOK()
+{
+    echo $OK_SUFFIX
+}
+
+printERROR()
+{
+    echo $ERROR_SUFFIX
+}
+
+printWARN()
+{
+    echo $WARN_SUFFIX
+}
+
+# vim:ft=sh

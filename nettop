@@ -1,0 +1,35 @@
+#!/bin/bash
+#
+# FILE: nettop
+#
+# ABSTRACT: Starts iftop for a connected iterface
+#
+# AUTHOR: Ralf Schandl
+#
+
+if [ "$(id -un)" != "root" ]; then
+    echo "Need root - sudoing..."
+    exec sudo "$0" "$@"
+fi
+
+if_list=$(ifconfig | grep -C 1  "inet addr"  | grep Ether | cut "-d " -f 1)
+
+cnt=$(echo "$if_list" | wc -l)
+
+if [ "$cnt" -gt 1 ]; then
+    select i in $if_list; do
+        interf=$i
+        break
+    done
+else
+    interf=$if_list
+fi
+
+if [ -z "$interf" ]; then
+    echo >&2 "No interface"
+    exit 1
+fi
+
+echo "Starting iftop on interface $interf"
+sudo iftop -i "$interf"
+

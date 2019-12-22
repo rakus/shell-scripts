@@ -1,0 +1,17 @@
+#!/bin/sh
+#
+# FILE: rot13
+#
+# ABSTRACT: rotate by 13 places
+#
+# see http://de.wikipedia.org/wiki/Rot13
+#
+# AUTHOR: Ralf Schandl
+#
+
+if [ $# -gt 0 ]; then
+    echo "$@" | tr A-Za-z N-ZA-Mn-za-m
+else
+    tr A-Za-z N-ZA-Mn-za-m
+fi
+

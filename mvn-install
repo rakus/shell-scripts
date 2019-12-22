@@ -1,0 +1,279 @@
+#!/bin/bash
+#
+# FILE: mvn-install
+#
+# ABSTRACT: Install files into local repository
+#
+# Installes *.zip, *.jar, *.war, *.ear, *.eba files if either a pom with the
+# same basename exists or a pom is contained within the file.
+# If the file is accompanied by a *-sources.jar and/or a *-javadoc.jar, those
+# files are also installed.
+#
+# Installes *.pom files if the <packaging> is 'pom'.
+#
+# All other files are ignored. Some files are silently ignored, see function
+# installFile.
+#
+# Examples:
+# Install a jar:
+#     mvn-install.sh my-tool-0.1.jar
+#
+# Install all files in the current directory:
+#     mvn-install.sh *
+#
+# Install all files from the current directory tree:
+#     mvn-install.sh -n $(find . -type f)
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_name="$(basename "$0")"
+
+# PATH to mvn
+# Set empty if mvn is reachable via default path
+MVN_DIR=
+
+# If 'true', no mvn command will be executed.
+# If '' (aka empty/unset) mvn wil be executed
+# Script option '-n' sets "NOOP=true".
+NOOP=
+
+if [ -n "$MVN_DIR" ]; then
+    PATH=$PATH:$MVN_DIR
+fi
+
+if ! type mvn >/dev/null 2>&1; then
+    echo >&2 ""
+    echo >&2 "ERROR: executable 'mvn' not found -- adjust path!"
+    echo >&2 ""
+    exit 1
+fi
+
+# Array to collect files whose installation failed
+typeset -a INSTALL_FAILED
+
+# run mvn command with given parameters
+# Handles NOOP
+MVN_RUN()
+{
+    if [ $NOOP ]; then
+        echo "   mvn $*"
+    else
+        mvn "$@"
+    fi
+}
+
+# execute mvn install-file
+MVN_INSTALL_FILE()
+{
+    MVN_RUN org.apache.maven.plugins:maven-install-plugin:install-file "$@"
+}
+
+# Install a JAR, WAR or ZIP (more general: any ZIP-based file)
+# Requires either a pom with a matching name in the same directory or a pom
+# packaged in the file (META-INF/maven/*/*/pom.xml).
+# If sources or javadoc are available, they are installed too
+installJar()
+{
+    typeset jarFile="$1"
+    typeset baseName="${jarFile/%.*([!.])/}"
+    typeset tmpPOM=
+
+    echo "Installing $jarFile..."
+
+    # array to collect maven args
+    typeset -a args
+
+    args+=( "-Dfile=$jarFile" )
+
+    # handle POM file
+    pomFile="$baseName.pom"
+    if [ ! -e "$pomFile" ]; then
+        # No POM file -- extract it
+        tmpPOM="$(mktemp "tmpPom.xml.XXXXXXXX")"
+        # extract POM from jar
+        if ! unzip -p "$jarFile" META-INF/maven/*/*/pom.xml > "$tmpPOM"; then
+            rm "$tmpPOM"
+            echo >&2 "ERROR: $jarFile: Couldn't extract pom".
+            INSTALL_FAILED+=( "${jarFile}: Couldn't extract pom" )
+            return 1
+        fi
+        pomFile="$tmpPOM"
+        echo "    - using extracted pom"
+    fi
+    args+=( "-DpomFile=$pomFile" )
+
+    # Check if sources-jar is available
+    if [ -e "${baseName}-sources.jar" ]; then
+        args+=( "-Dsources=$baseName-sources.jar" )
+    fi
+
+    # Check if javadoc-jar is available
+    if [ -e "${baseName}-javadoc.jar" ]; then
+        args+=( "-Djavadoc=$baseName-javadoc.jar" )
+    fi
+
+    # create MD5/SHA-1 checksums
+    args+=( "-DcreateChecksum=true" )
+
+    typeset pkg=$(getPackaging "$pomFile")
+
+    if [ "$pkg" = "bundle" ]; then
+        args+=( "-Dpackaging=jar" )
+    fi
+
+    if ! MVN_INSTALL_FILE "${args[@]}"; then
+        INSTALL_FAILED+=( "${file}: See mvn output" )
+    fi
+
+    if [ -n "$tmpPOM" ] && [ -e "$tmpPOM" ]; then
+        rm "$tmpPOM"
+    fi
+}
+
+# Install a POM -- easy...
+installPom()
+{
+    typeset pomFile="$1"
+    echo "Installing POM: $pomFile"
+    if ! MVN_INSTALL_FILE "-Dfile=$pomFile" "-DpomFile=$pomFile"; then
+        INSTALL_FAILED+=( "${file}: See mvn output" )
+    fi
+}
+
+
+getPackaging()
+{
+    typeset pomFile="$1"
+    typeset pkg=$(awk '/<packaging>/,/<\/packaging>/' "$1" | tr -d ' \t \n' | sed "s/<[^>]*>//g")
+    if [ -n "$pkg" ]; then
+        echo "$pkg"
+    else
+        echo "jar"
+    fi
+}
+
+
+
+# Is the file a POM with 'pom' packaging?
+isPomPom()
+{
+    # extract packaging -- might be empty (default: jar)
+    # Commands xmllint or xpath might produce errors or warnings
+    typeset pkg=$(getPackaging "$1")
+
+    if [ "$pkg" = "pom" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+isPomForJar()
+{
+    typeset bn="${1/%.*([!.])/}"
+    [ -e "$bn.jar" ] && return 0
+    [ -e "$bn.war" ] && return 0
+    [ -e "$bn.ear" ] && return 0
+    [ -e "$bn.zip" ] && return 0
+    [ -e "$bn.eba" ] && return 0
+    return 1
+}
+
+installFile()
+{
+    typeset file="$1"
+
+    if [ ! -f "$file" ]; then
+        echo "ERROR: $file: Not a regular file or file not found"
+        INSTALL_FAILED+=( "$file: Not a regular file or file not found" )
+        return
+    fi
+
+
+    case "$(basename "$file")" in
+        # Silently ignore sources and javadoc jars, they are
+        # used with the appropriate bin jar.
+        *-sources.jar | *-javadoc.jar) ;;
+
+        *.zip | *.jar | *.war | *.ear | *.eba)
+            installJar "$file"
+            ;;
+        *.pom)
+            # Only install if POM has 'pom' packaging
+            if isPomPom "$file"; then
+                installPom "$file"
+            else
+                if ! isPomForJar "$file"; then
+                    echo "SKIPPING $file: no 'pom' packaging"
+                fi
+            fi
+            ;;
+
+        # if this was copied from another maven repository,
+        # silently ignore maven administrative files
+        *.sha1 | *.md5 | *.lastUpdated) ;;
+        maven-metadata*.xml | _remote.repositories | resolver-status.properties) : ;;
+        _maven.repositories | m2e-lastUpdated.properties) : ;;
+
+        # Error message on unknown files
+        *)
+            echo >&2 "ERROR: Don't know how to handle: $file"
+            ;;
+    esac
+}
+
+# Show Usage and exit(1).
+usage()
+{
+    echo >&2 ""
+    echo >&2 "Usage: $script_name [-n] file..."
+    echo >&2 "  -n  NoOp - just print commands"
+    echo >&2 ""
+    echo >&2 "  file: JAR, WAR, ZIP or pom-file"
+    echo >&2 ""
+    exit 1
+}
+
+simu-marker()
+{
+    echo "==="
+    echo "=== Simulation Mode"
+    echo "==="
+}
+
+#---------[ MAIN ]-------------------------------------------------------------
+
+while getopts "n" o "$@"; do
+    case "$o" in
+        n)
+            NOOP=true
+            ;;
+        *)
+            usage
+            ;;
+    esac
+done
+shift $((OPTIND-1))
+
+if [ $# -eq 0 ]; then
+    usage
+fi
+
+[ $NOOP ] && simu-marker
+
+for fn in "$@"; do
+    installFile "$fn"
+done
+
+if [ ${#INSTALL_FAILED[@]} -gt 0 ]; then
+    echo >&2 ""
+    echo >&2 "Installation of some files failed:"
+    for msg in "${INSTALL_FAILED[@]}"; do
+        echo >&2 "    ${msg}"
+    done
+    echo >&2 ""
+fi
+
+[ $NOOP ] && simu-marker
+

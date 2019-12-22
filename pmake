@@ -1,0 +1,57 @@
+#!/bin/bash
+#
+# Run make, if no Makefile in current directory, check parents.
+#
+
+# assuming GNU make here
+# From man page: "If no -f option is present, make will look for the makefiles
+# GNUmakefile, makefile, and Makefile, in that order"
+makefile_names=( "GNUmakefile" "makefile" "Makefile" )
+
+# Check for options '-C <dir>' or '-f <makefile>'
+# All other options are ignored.
+# leading colon: No error messages
+while getopts ":C:f:" o "$@"; do
+    case $o in
+        C) got_dir=true ;;
+        f) makefile_names=( "$OPTARG" )
+            ;;
+        :) echo >&2 "Missing parameter for -$OPTARG"
+            exit 1
+            ;;
+        *) # don't care
+            ;;
+    esac
+done
+
+# If makefile given via '-f' element 0 could be an absolute path.
+case "${makefile_names[0]}" in
+    /*) makefile_absolute=true ;;
+    *)  # not absolut
+        ;;
+esac
+
+if [ -n "${got_dir:-}" ] || [ -n "${makefile_absolute:-}" ]; then
+    make "$@"
+else
+    make_dir="$(pwd)"
+    makefile=""
+    while [ "$make_dir" != "$(dirname "$make_dir")" ]; do
+        for mfn in "${makefile_names[@]}"; do
+            if [ -e "$make_dir/$mfn" ]; then
+                makefile="$make_dir/$mfn"
+                break 2
+            fi
+        done
+        make_dir="$(dirname "$make_dir")"
+    done
+
+    if [ -z "$makefile" ]; then
+        echo >&2 "No Makefile found"
+    elif [ "$make_dir" = "$(pwd)" ]; then
+        make "$@"
+    else
+        make -C "$make_dir" "$@"
+    fi
+fi
+

@@ -1,0 +1,140 @@
+#!/bin/bash
+#
+# Interactive stage files.
+#
+
+script_dir=$(dirname "$(readlink -f "$0" )" )
+
+. "$script_dir/git.shlib"
+
+#set -u
+
+# execute git unless dryRun is set
+# $*: git command line args
+doGit()
+{
+    echo "git $*"
+    if [ ! $dryRun ]; then
+	git "$@"
+	[ $? != 0 ] && exit 1
+    fi
+}
+
+# handle file
+# $1: state (M: modified, D:deleted, ?:untracked)
+# $2: file name
+handleFile()
+{
+    local state="$1"
+    local file="$2"
+    if [[ "$file" == '"'*'"' ]]; then
+	file=$(eval echo "$file")
+    fi
+    case  "$state" in
+	"M")
+	    doGit add "$file"
+	    ;;
+	"D")
+	    if [[ "$file" = *'/' ]]; then
+		rec=-r
+	    else
+		rec=
+	    fi
+	    doGit rm $rec "$file"
+	    ;;
+	"?")
+	    doGit add "$file"
+	    ;;
+	*)
+	    echo >&2 "Can't handle state '$state'"
+	    exit 1
+	    ;;
+    esac
+
+}
+
+
+show_help() {
+    echo "git plus [Options]"
+    echo "Options:"
+    echo "  -a, --all      Also shows individual files in untracked directories."
+    echo "  -n, --dry-run  Show what would be done but don't execute git commands."
+    echo "  -s, --settings Also show changes in Eclipse-specific directory '.setting.'"
+    echo "                 By default changes inside those directories are ignored."
+}
+
+show_version() {
+    echo "git-plus V1.0"
+}
+
+cdGitRoot
+
+aCmd=$(parseargs -n "git plus" -go "a:all#all,dry-run#dryRun,s:settings#settings" -- "$@")
+[ $? != 0 ] && exit 7
+#echo "$aCmd"
+eval "$aCmd"
+[ $? -ne 0 ] && exit 7
+
+if [ $all ]; then
+    untracked="--untracked-files=all"
+else
+    untracked=
+fi
+
+TMPFILE=$(mktemp -t GIT_PLUS.XXXX)
+trap "rm -f \"$TMPFILE\"" EXIT
+
+cat << END > "$TMPFILE"
+#
+# Files to be staged.
+# Quit without saving to cancel operation.
+# Delete lines with files YOU DO NOT WANT to ADD.
+#
+
+END
+
+# get git status
+# - only files that have changes in working dir (2. character)
+# - For renamed&changed files insert original line as comment and the line with original name removed
+
+changes=$(git status --porcelain $untracked | grep "^.[^ ]" | sed "s/^\(R[^ ]\) .* -> \(.*\)$/# \0\n\1 \2/")
+if [ ! $settings ]; then
+    if echo "$changes" | grep "/\.settings/" >/dev/null 2>&1; then
+        {
+            echo "# FILTERED: Changes in Eclipse directories '.settings' were filtered out"
+            echo "#    Use -s/--settings to disable filtering"
+            echo ""
+        } >> "$TMPFILE"
+    fi
+    changes=$(echo "$changes" | grep -v "/\.settings/")
+fi
+if [ -z "$changes" ]; then
+    echo >&2 "No changes. Nothing to do."
+    exit 1
+fi
+echo "$changes" >> "$TMPFILE"
+
+editFileExitNoChange "$TMPFILE"
+
+ignLines=''
+while IFS=$'\n' read -r ln; do
+    [ -z "$(echo "$ln" | tr -d " \t")" ] && continue
+    [[ "$(echo "$ln" | tr -d " \t")" = '#'* ]] && continue
+
+    if [[ "$ln" == ?[MD?]\ [!\ ]* ]]; then
+	handleFile "${ln:1:1}" "${ln:3}"
+    else
+	ignLines="${ignLines}\n${ln}"
+    fi
+
+
+done < "$TMPFILE"
+
+if [ -n "$ignLines" ]; then
+    echo >&2 ""
+    echo >&2 -e "WARNING: The following lines could not be processed:$ignLines"
+fi
+
+if [ $dryRun ]; then
+    echo "DRY RUN: no git commands executed"
+fi

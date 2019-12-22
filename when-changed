@@ -1,0 +1,168 @@
+#!/bin/bash
+#
+# FILE: when-changed
+#
+# ABSTRACT: Watches files and executes a command if one of them is changed
+#
+# Watches given file(s) for being closed after being opened in writeable mode.
+# If this is detected a given command is executed.
+#
+# Also catches 'touch' events.
+#
+# Requires parseargs, inotifywait
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_name="$(basename "$0")"
+
+
+#
+# Check whether the first argument is somewhere in the following.
+# Used like: contains x.txt "${file[@]}"
+#
+contains()
+{
+    local e
+    for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
+    return 1
+}
+
+#
+# Execute the command on a file
+# $1 the file
+# $2... The command
+executeCmd()
+{
+    typeset fn="$1"
+    shift
+
+    IFS=$'\n' actCmd=($(printf "%s\n" "$@" | sed "s|%f|$fn|"))
+    if [ -z "$quiet" ]; then
+        echo "Changed:   $fn"
+        echo "Executing: ${actCmd[*]}"
+    fi
+    (
+    [ -n "$verbose" ] && set -x
+    if [ -n "$inDir" ]; then
+        cd "$(dirname "$fn")" || exit 1
+    fi
+    "${actCmd[@]}"
+    )
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "ERROR (rc=$rc)"
+    else
+        if [ -z "$quiet" ]; then
+            echo "DONE (rc=0)"
+        else
+            echo ""
+        fi
+    fi
+}
+
+show_help()
+{
+
+    echo "Watches the given file(s) and executes command when a file is changed."
+    echo ""
+    echo "Usage:"
+    echo " $script_name [-idqv] <file-to-watch>... --  <command> [arg]..."
+    echo ""
+    echo " -i Initally run command for all files on startup."
+    echo " -d Execute the command in the directory of the changed file."
+    echo " -q Don't print changed file and command before executing and 'DONE' afterwards."
+    echo " -v Verbose output (for debugging)."
+    echo ""
+    echo "%f in command or its args is replaced with the name of the changed file. E.g: "
+    echo "     when-changed a.txt b.txt -- ls -l %f"
+    echo ""
+}
+
+show_version()
+{
+    echo "$script_name V1.0"
+}
+
+#---------[ MAIN ]-------------------------------------------------------------
+
+initial=''
+quiet=''
+inDir=''
+verbose=''
+typeset -a cmd
+args=$(parseargs -n "$script_name" -s bash -r cmd -go "i#initial,q#quiet,d#inDir,v#verbose" -- "$@")
+eval "$args" || exit 1
+
+if [ $# -lt 1 ]; then
+    show_help
+    exit 0
+fi
+
+if [ ${#cmd[@]} -eq 0 ]; then
+    echo >&2 "ERROR: No command. Did you forget '--' to separate command from file(s)?"
+    exit 1
+fi
+
+#
+# Check files
+#
+files=()
+for fn in "$@"; do
+    f="$(readlink -f "$fn")"
+    [ $? -ne 0 ] && echo >&2 "ERROR: Cannot watch file '$fn'. (Non-existing parent dir?)" && exit 1
+    [ -d "$f" ] && echo >&2 "ERROR: Cannot watch a directory: '$fn'" && exit 1
+    [ ! -e "$f" ] && echo >&2 "WARNING: File '$fn' does not exist. Waiting for it to emerge."
+    files+=( "$f" )
+    shift
+done
+
+# Now determine directories to watch for filenames
+dirs=()
+for f in "${files[@]}"; do
+    dirs+=( "$(dirname "$f")" )
+done
+
+# Make directories uniq
+oldIFS="$IFS"
+IFS=$'\n'
+dirs=($(printf "%s\n" "${dirs[@]}" | sort -u))
+IFS="$oldIFS"
+
+if [ -n "$verbose" ]; then
+    echo "DIRS:"; printf "  %s\n" "${dirs[@]}"
+    echo "FILES:"; printf "  %s\n" "${files[@]}"
+    echo -n "CMD: "
+    printf "%q " "${cmd[@]}"
+    echo ""
+fi
+
+if [ -n "$initial" ]; then
+    # if command needs filename run it for each filename
+    # else if command should run in dir, run it once per dir
+    # else run it only once
+    if echo "${cmd[*]}" | grep "%f" >/dev/null; then
+        for f in "${files[@]}"; do
+            executeCmd "$f" "${cmd[@]}"
+        done
+    elif [ -n "$inDir" ]; then
+        for d in "${dirs[@]}"; do
+            executeCmd "$d/xx" "${cmd[@]}"
+        done
+    else
+        # run it once!
+        executeCmd "${files[0]}" "${cmd[@]}"
+    fi
+fi
+
+#
+# Setup inotify monitor and process the output
+#
+IFS=$'\n'
+inotifywait -mqe close_write --format "%w%f" "${dirs[@]}" |
+while read -r fn; do
+    if  contains "$fn" "${files[@]}" ; then
+        executeCmd "$fn" "${cmd[@]}"
+    fi
+done
+

@@ -1,0 +1,119 @@
+#
+# FILE: git.shlib
+#
+# ABSTRACT: library for git related scripts
+#
+# AUTHOR: Ralf Schandl
+#
+
+#
+# Execute git unless the variable "dryRun" is set to non-empty.
+# Exist if git command fails.
+#
+# $*: git command line args
+#
+doGit()
+{
+    echo "git $*"
+    if [ ! $dryRun ]; then
+	git "$@"
+	[ $? != 0 ] && exit 1
+    fi
+}
+
+#
+# Assert that the current directory is a directory in a git repository. If NOT,
+# print error message and exit.
+#
+assertGitDir()
+{
+    if [ -z "$(git rev-parse --git-dir 2>/dev/null)" ]; then
+	echo >&2 "ERROR: Current directory is not part of a git repository - exit."
+	exit 1
+    fi
+}
+
+getGitRemote()
+{
+    if [ $(git remote | wc -l) -ne 1 ]; then
+        echo >&2 "Multiple remotes -- don't know which to use"
+        exit 1
+    fi
+    git remote
+}
+
+#
+# Returns 0 (zero) if git repository is clean.
+#
+isGitClean()
+{
+    test -z "$(git status --porcelain 2>/dev/null)"
+}
+
+#
+# Returns 0 (zero) if the current directory is within a git repository.
+#
+isGitDir()
+{
+    test -n "$(git rev-parse --git-dir 2>/dev/null)"
+}
+
+
+#
+# Executes 'git fetch --all --prune --tags. Exits on failure.
+#
+gitFetchAll()
+{
+    git fetch --all --prune --tags
+    [ $? -ne 0 ] && exit 1
+}
+
+
+#
+# Changes the current directory to the root dir of the git repository. Exits if
+# the current directory is not within a git repository or the change directory
+# command fails.
+#
+cdGitRoot()
+{
+    local gitDir="$(git rev-parse --git-dir 2>/dev/null)"
+    if [ -z "$gitDir" ]; then
+	echo >&2 "ERROR: Current directory is not part of a git repository - exit."
+	exit 1
+    else
+	gitDir=$(readlink -f "$gitDir")
+    fi
+    gitDir=$(dirname "$gitDir")
+    cd "$gitDir"
+    [ $? -ne 0 ] && exit 1
+}
+
+
+#
+# Open the given file in editor. If the editor is terminated without saving the
+# file, exit with code 1
+#
+# $1: The file to edit.
+#
+editFileExitNoChange()
+{
+    local tmpFile="$1"
+
+    # Store old file timestamp
+    touch -am -t 197001010000 "$tmpFile"
+    oldTS=$(stat -c "%Y" "$tmpFile")
+
+    # edit selection
+    ${EDITOR:=vi} "$tmpFile"
+
+    # If not saved (so timestamp did not change) do nothing
+    newTS=$(stat -c "%Y" "$tmpFile")
+    if [ "$oldTS" = "$newTS" ]; then
+	echo ""
+	echo "File not saved -- no action"
+	echo ""
+	exit 1
+    fi
+
+}
+

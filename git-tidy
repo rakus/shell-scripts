@@ -1,0 +1,203 @@
+#!/bin/bash
+#
+# Interactive resetting of the working tree.
+#
+# This might needs further testing & refinement.
+#
+
+script_dir=$(dirname $(readlink -f "$0"))
+
+. "$script_dir/git.shlib"
+
+#set -u
+
+putzKommando=""
+
+doGit()
+{
+    if [ -n "$putzKommando" ]; then
+        putzKommando="$putzKommando && "$'\n'
+    fi
+    putzKommando="${putzKommando}git $(printf "%s " "$@") "
+}
+
+doRm()
+{
+    if [ -n "$putzKommando" ]; then
+        putzKommando="$putzKommando &&"$'\n'
+    fi
+    putzKommando="${putzKommando}rm $(printf "%s " "$@") "
+}
+
+handleStagedStatus()
+{
+    local idxState="$1"
+    local file="$2"
+
+    case "$idxState" in
+        M) # modified
+            echo >&2 "Revert modification: $file"
+            doGit reset -- "$file"
+            [ $hard ] && doGit checkout "$file"
+            ;;
+        A) # added to index
+            echo >&2 "Revert new file: $file"
+            doGit reset -- "$file"
+            [ $hard ] && doRm "$file"
+            ;;
+        D) # deleted
+            echo >&2 "Revert delete: $file"
+            doGit reset -- "$file"
+            [ $hard ] && doGit checkout "$file"
+            ;;
+        R) # rename
+            oldFile=$(echo "$file" | sed "s/ ->.*//")
+            newFile=$(echo "$file" | sed "s/^.* -> //")
+            oldFile="$(eval echo "$oldFile")"
+            newFile="$(eval echo "$newFile")"
+            doGit mv "$newFile" "$oldFile"
+            ;;
+        C) # copied in index
+            echo >&2 "Copied in index: don't know how to handle"
+            ;;
+        *)
+            echo >&2 "Unknown index state '$idxState'."
+            exit 1
+            ;;
+    esac
+}
+
+show_help() {
+    echo "git tidy [Options]"
+    echo "Options:"
+    echo "  -s, --staged   Only show staged changes"
+    echo "  -a, --all      Show staged and unstaged changes"
+    echo "      --hard     For staged changes: Unstage and reset to head state"
+    echo "  -N, --no-edit  Don't open editor to edit files to clean up"
+    echo "  -f, --force    Don't ask before executing commands."
+}
+
+show_version() {
+    echo "git-tidy V1.0"
+}
+
+
+aCmd=$(parseargs -n "git tidy" -go "s:staged#action=staged,a:all#action=all,hard#hard,N:no-edit#noEdit,f:force#force" -- "$@")
+[ $? != 0 ] && exit 7
+#echo "$aCmd"
+eval "$aCmd"
+[ $? -ne 0 ] && exit 7
+
+if [ $hard ] && [ -z "$action" ]; then
+    echo >&2 "Option '--hard' can only be used with '--staged' or '--all'"
+    exit 1
+fi
+
+TMPFILE=$(mktemp -t GIT_PUTZ.XXXX)
+
+trap "rm -f '$TMPFILE'" EXIT
+
+cat << END > "$TMPFILE"
+# Current changes to workarea
+# Quit without saving to cancel operation.
+# Delete lines with files YOU WANT TO KEEP.
+END
+
+cdGitRoot
+
+case $action in
+    staged)
+        echo "# All other files will be resetted." >> "$TMPFILE"
+        echo "" >> "$TMPFILE"
+        changes=$(git status --porcelain | grep -v "^[ !?]")
+        if [ -z "$changes" ]; then
+            echo >&2 "No staged changes. Nothing to do."
+            exit 1
+        fi
+        echo "$changes" >> "$TMPFILE"
+        ;;
+    "all")
+        echo "# All other files will be resetted to HEAD state." >> "$TMPFILE"
+        echo "" >> "$TMPFILE"
+        changes=$(git status --porcelain)
+        if [ -z "$changes" ]; then
+            echo >&2 "No changes. Nothing to do."
+            exit 1
+        fi
+        echo "$changes" >> "$TMPFILE"
+        ;;
+    '')
+        echo "# All other files will be resetted to HEAD state." >> "$TMPFILE"
+        echo "" >> "$TMPFILE"
+        changes=$(git status --porcelain | grep -v "^[MARCD]")
+        if [ -z "$changes" ]; then
+            echo >&2 "No changes. Nothing to do."
+            exit 1
+        fi
+        echo "$changes" >> "$TMPFILE"
+        ;;
+    *)
+        echo >&2 "Can't handle action '$action'"
+        exit 1
+        ;;
+esac
+
+if [ "$noEdit" != "true" ]; then
+    editFileExitNoChange "$TMPFILE"
+fi
+
+# collect commands in variable putzKommando
+while IFS='' read -r ln; do
+    file=${ln:3}
+    idxState=${ln:0:1}
+    wtState=${ln:1:1}
+    if [ "$idxState" = '#' ] || [ "$idxState" = '!' ]; then
+        continue
+    fi
+    if [ -z "${ln//[ \t]}" ]; then
+        continue
+    fi
+
+    if [ "$idxState" == " " ]; then
+        doGit checkout "$file"
+    elif [ "$idxState" == "?" ]; then
+        case $file in
+            */)
+                doRm -rf "$file"
+                ;;
+            *)
+                doRm -f "$file"
+                ;;
+        esac
+    elif [[ "MARCD" == *"$idxState"* ]]; then
+        handleStagedStatus "$idxState" "$file"
+    elif [ "$idxState" == '!' ]; then
+        :
+    else
+        echo >&2 "Unknown index state '$idxState'."
+        exit 1
+    fi
+done < "$TMPFILE"
+
+if [ -z "$putzKommando" ]; then
+    echo "Nothing to do ... good by"
+    exit 0
+fi
+
+if [ ! $force ]; then
+    echo "$putzKommando"
+    echo ""
+    while true; do
+        read -p "Really execute those commands? (y/n) " yn
+        case $yn in
+            [Yy]* ) echo "Doing it"
+                break;;
+            [Nn]* ) echo "Good bye!"
+                exit;;
+            * ) echo "Please answer yes or no.";;
+        esac
+    done
+fi
+
+eval "$putzKommando"
+

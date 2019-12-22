@@ -1,0 +1,20 @@
+#!/bin/sh
+#
+# FILE: rot47
+#
+# ABSTRACT: rotate by 47 places
+#
+# see http://de.wikipedia.org/wiki/Rot13#ROT13-Variationen
+#
+# AUTHOR: Ralf Schandl
+#
+
+FROM='!-~'
+TO='P-~!-O'
+
+if [ $# -gt 0 ]; then
+    echo "$@" | tr "$FROM" "$TO"
+else
+    tr "$FROM" "$TO"
+fi
+

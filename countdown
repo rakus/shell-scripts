@@ -1,0 +1,107 @@
+#!/bin/bash
+#
+# FILE: countdown
+#
+# ABSTRACT: Countdown given number of seconds
+#
+# Usage:
+#     countdown [-f] seconds [CountdownMsg [EndMsg]]
+#
+#     -f       Don't allow cancelation with ESC
+#
+#     seconds: Time to count down in seconds
+#
+#     CountdownMsg:
+#       Message to display while counting down. If the message contains
+#       a "%d" this will be replaced by the seconds to wait. This message
+#       is updated in place periodically, so the "%d" will also be updated.
+#       Default: "Countdown: %d"
+#
+#     EndMsg:
+#       Displayed if countdown is finished. Overwrites the CountdownMsg.
+#       Default: "" (aka clear line)
+#
+# Example:
+#
+#    countdown 60 "Let's wait another %d seconds" "Ok - let's go"
+#
+# Note: The countdown can be canceled with ESC.
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_name=$(basename "$0")
+
+while getopts "f" o "$@"; do
+    case $o in
+        f) noCancel=true
+            ;;
+        *)
+            exit 1
+            ;;
+    esac
+done
+shift $((OPTIND-1))
+
+if [ -z "$noCancel" ]; then
+    msg="Countdown: %d (hit ESC to cancel)"
+else
+    msg="Countdown: %d"
+fi
+endmsg=""
+
+case $# in
+    3)
+    endmsg=$3
+    ;&
+    2)
+    msg=$2
+    ;&
+    1)
+    timeout=$1
+    ;;
+    *)
+    echo >&2 "Usage: $script_name [-f] seconds [CountdownMsg [EndMsg]]"
+    echo >&2 "  - CountdownMsg should contain '%d' to include the remaining seconds to"
+    echo >&2 "    count down."
+    echo >&2 "  - If '-f' is not given, the countdown can be canceled with ESC."
+    echo >&2 "    Ctrl-C also stops the countdown but will also kill the calling script."
+    echo >&2 "  - If countdown was canceled, the script returns 1, else 0"
+    exit 1
+    ;;
+esac
+
+if [ -n "${timeout//[0-9]/}" ]; then
+    echo >&2 "Timeout value must be numeric"
+    exit 1
+fi
+
+curTime=$(date +%s)
+endTime=$((curTime+timeout))
+
+ESC=$'\033'
+
+while [[ $curTime -lt $endTime ]]; do
+    rest=$((endTime-curTime))
+    # shellcheck disable=SC2059 # Variable in printf format
+    printf "\r$msg \e[K" $rest
+    if [ $noCancel ]; then
+        sleep 1
+    else
+        read -r -st1 -n1 esc
+    fi
+    curTime=$(date +%s)
+    if [ "$esc" == "$ESC" ]; then
+        echo -e "\rCountdown canceled\e[K"
+        exit 1
+    fi
+done
+
+if [[ -z "$endmsg" ]]; then
+    echo -en "\r\e[K"
+else
+    echo -e "\r${endmsg}\e[K"
+fi
+
+exit 0
+

@@ -1,0 +1,29 @@
+#!/bin/sh
+#
+# FILE: cols
+#
+# ABSTRACT:
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_name=$(basename "$0")
+
+if [ $# -ne 1 ]; then
+    echo "Usage: $script_name <number-of-columns>"
+    exit 1
+elif [ "$1" = "max" ]; then
+    C=2000
+elif [ "$1" -eq "$1" ] 2>/dev/null ; then
+    C=$1
+elif [ "$1" = "-" ]; then
+    C=80
+else
+    echo >&2 "Argument must be numeric."
+    exit 1
+fi
+
+eval "$(resize)"
+
+printf "[8;%d;%d;t" "$LINES" "$C"
+

@@ -1,0 +1,15 @@
+#!/bin/bash
+#
+# FILE: escfilter
+#
+# ABSTRACT: Filters out ANSI escape seequences
+#
+# AUTHOR: Ralf Schandl
+#
+# $Id: escfilter 50 2011-03-27 17:33:37Z rks $
+#
+
+while read l; do
+    echo "$l" | sed "s/\[[^A-Za-z]*[A-Za-z]//"
+done
+

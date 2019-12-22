@@ -1,0 +1,11 @@
+#!/bin/sh
+#
+# FILE: ffprofilemanager
+#
+# ABSTRACT:
+#
+# AUTHOR: Ralf Schandl
+#
+
+firefox -ProfileManager -no-remote &
+

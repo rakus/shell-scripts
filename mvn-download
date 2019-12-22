@@ -1,0 +1,185 @@
+#!/bin/bash
+#
+# FILE: mvn-download
+#
+# ABSTRACT: Collect maven dependencies and build zip incl. license info.
+#
+# AUTHOR: Ralf Schandl
+#
+
+# Version of org.apache.maven.plugins:maven-dependency-plugin
+# Note: 2.8 did not work!
+MVN_DEP_PLUGIN_VERSION=2.10
+
+isScope()
+{
+    case $1 in
+        compile) return 0;;
+        provided) return 0;;
+        runtime) return 0;;
+        test) return 0;;
+        system) return 0;;
+        import) return 0;;
+        *) return 1;;
+    esac
+}
+
+createDependencies()
+{
+    for d in "$@"; do
+
+        v=
+        t=
+        c=
+
+        IFS=':' read -r -a parts <<< "$d"
+        g="${parts[0]}"
+        a="${parts[1]}"
+        case ${#parts[@]} in
+            3)
+                v="${parts[2]}"
+                ;;
+            4)
+                if isScope "${parts[3]}"; then
+                    v="${parts[2]}"
+                    s="${parts[3]}"
+                else
+                    t="${parts[2]}"
+                    v="${parts[3]}"
+                fi
+                ;;
+            5)
+                if ! isScope "${parts[4]}"; then
+                    echo >&2 "ERROR: \"${parts[4]}\" is not a valid scope in"
+                    echo >&2 "    \"$d\""
+                    exit 1
+                fi
+                t="${parts[2]}"
+                v="${parts[3]}"
+                s="${parts[4]}"
+                ;;
+            6)
+                if ! isScope "${parts[5]}"; then
+                    echo >&2 "ERROR: \"${parts[5]}\" is not a valid scope in"
+                    echo >&2 "    \"$d\""
+                    exit 1
+                fi
+                t="${parts[2]}"
+                c="${parts[3]}"
+                v="${parts[4]}"
+                s="${parts[5]}"
+                ;;
+            *)
+                echo >&2 "ERROR: Can't determine artifact version from"
+                echo >&2 "    \"$d\""
+                exit 1
+                ;;
+        esac
+
+        echo "        <dependency>"
+        echo "            <groupId>$g</groupId>"
+        echo "            <artifactId>$a</artifactId>"
+        echo "            <version>$v</version>"
+        [ -n "$t" ] && echo "            <type>$t</type>"
+        [ -n "$s" ] && echo "            <scope>$s</scope>"
+        [ -n "$c" ] && echo "            <classifier>$c</classifier>"
+        echo "        </dependency>"
+    done
+}
+
+createPom()
+{
+    local POM="$1"
+    shift
+    {
+        echo '<?xml version="1.0" encoding="UTF-8"?>'
+        echo '<!--'
+        echo '  mvn dependency:list        to list dependencies'
+        echo '  mvn dependency:resolve     to resolve dependencies from repository'
+        echo '-->'
+        echo '<project xmlns="http://maven.apache.org/POM/4.0.0"'
+        echo '        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+        echo '        xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">'
+        echo '    <modelVersion>4.0.0</modelVersion>'
+        echo '    <groupId>mvn.download</groupId>'
+        echo '    <artifactId>dependencies</artifactId>'
+        echo '    <version>1.0.0</version>'
+        echo '    <dependencies>'
+        createDependencies "$@"
+        echo '    </dependencies>'
+        echo '    <build>'
+        echo '        <plugins>'
+        echo '            <plugin>'
+        echo '                <groupId>org.apache.maven.plugins</groupId>'
+        echo '                <artifactId>maven-dependency-plugin</artifactId>'
+        echo "                <version>$MVN_DEP_PLUGIN_VERSION</version>"
+        echo '            </plugin>'
+        echo '        </plugins>'
+        echo '    </build>'
+        echo '</project>'
+    } >> "$POM"
+}
+
+show_version() {
+    echo "mvn-download.sh V1.0"
+}
+
+show_help() {
+    echo "Usage: mvn-download.sh [-Uk] <groupId>:<artifactId>:[type:]<version>[:<scope>] ..."
+    echo "   -U check for updated snapshots or releases"
+    echo "   -k keep temp directory"
+    echo ""
+    echo "   Parameter are \"flat\" maven dependencies."
+    echo "   The fields 'type' and 'scope' might be omitted."
+}
+
+#---------[ MAIN ]-------------------------------------------------------------
+
+update=
+keepTmp=
+eval "$(parseargs -go 'U#update,k#keepTmp' -- "$@")" || exit 1
+if [ $# = 0 ]; then
+    show_help
+    exit 1
+fi
+
+[ -n "$update" ] && mvnFlag="-U"
+
+runDir="$PWD"
+tmpDir="$(mktemp -d "$runDir/mvn-download-tmp-XXXXXX")"
+zipFile="$runDir/$(echo "$1"| sed "s/::*/-/g")-dependencies.zip"
+
+cd "$tmpDir" || exit 1
+
+echo "Creating POM..."
+createPom pom.xml "$@"
+
+OUTDIR="$tmpDir/dependencies"
+
+COPY_ARGS=( "-Dmdep.useRepositoryLayout=true" "-Dmdep.copyPom=true" "-Dmdep.addParentPoms=true" "-DoutputDirectory=$OUTDIR/repository")
+TREE_ARGS=( "-DoutputFile=$OUTDIR/dependency-tree.txt" )
+LICENSE_ARGS=("-Dlicense.outputDirectory=$OUTDIR" "-Dlicense.thirdPartyFilename=License-List.txt")
+
+echo "Running Maven..."
+mvn $mvnFlag dependency:copy-dependencies dependency:tree license:add-third-party "${COPY_ARGS[@]}" "${TREE_ARGS[@]}" "${LICENSE_ARGS[@]}" || exit 1
+
+cd "$OUTDIR" || exit 1
+# deepest dependencies first
+deps=( $(cat dependency-tree.txt |  sed "s/[\\|+-][ -]/  /g" | LC_COLLATE=C sort | head -n -1 | tr -d " ") )
+createPom dep-check-pom.xml  "${deps[@]}"
+
+echo "Zipping $(basename "$zipFile") ..."
+
+zip -qr "$zipFile" ./*
+
+cd "$runDir" || exit 1
+
+echo ""
+if [ $keepTmp ]; then
+    echo "Keeping temp directory $(basename "$tmpDir")"
+else
+    echo "Cleaning up ..."
+    rm -rf "$tmpDir"
+fi
+echo ""
+

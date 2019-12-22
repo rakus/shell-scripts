@@ -1,0 +1,48 @@
+#!/bin/sh
+#
+# FILE: unixdate
+#
+# ABSTRACT: Print timestamp for (milli)seconds since epoche
+#
+# Prints the timestamp for the given seconds relative to the epoche
+# (1970-01-01 00:00:00 UTC).
+#
+# If this script is named "javadate" the given numeric value will
+# be interpreted as milliseconds else as seconds.
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_dir=$(cd "$(dirname $0)" 2>/dev/null; echo "$PWD")
+script_name=$(basename $0)
+
+div=1
+milli=""
+if [ $script_name = "javadate" ]; then
+    div=1000
+    milli="milli"
+fi
+
+usage()
+{
+    echo >&2 "Usage: $script_name [-u] <${milli}seconds since 1970-01-01 00:00:00 UTC>"
+    echo >&2 "   Print local date/time for given ${milli}seconds since 1970-01-01 00:00:00 UTC."
+    echo >&2 "   If -u given, print UTC date/time."
+    exit 1
+}
+
+eval "$(parseargs -s sh -o "u#showUtc" -e usage -- "$@")"
+[ $? -ne 0 ] && exit 1
+[ $showUtc ] && utc="-u"
+[ $# -eq 0 ] && usage
+secs=$1
+
+if  [ "$secs" -eq "$secs" ] 2>/dev/null; then
+    secs=$(($secs/$div))
+    date "+%a %F %T %Z" $utc -d @$secs
+else
+
+    echo "Parameter is not numeric."
+    usage
+fi
+

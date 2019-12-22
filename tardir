@@ -1,0 +1,71 @@
+#!/bin/bash
+#
+# FILE: tardir
+#
+# ABSTRACT: creates tar.gz from given directory
+#
+# AUTHOR: Ralf Schandl
+#
+
+script_name=$(basename "$0")
+
+EXT=tar.gz
+
+show_version() {
+    echo "Version 1"
+}
+
+show_help()
+{
+    echo "Tar.gz given directory"
+    echo "Usage: $script_name [-t|--withTimestamp] dir ..."
+    echo "           -t, --withTimestamp  append timestamp to archive name"
+    exit 0
+}
+
+withTimestamp=""
+argCmd=$(parseargs -go "t#withTimestamp" -- "$@")
+eval "$argCmd" || exit 1
+
+[ $# -eq 0 ] && show_help
+
+tarit()
+{
+    # Remove trailing '/'
+    # With this it doesn't work with the root dir -- thats OK
+    dir="${1%%/}"
+
+    if [[ ! -d "$dir" ]]; then
+        echo >&2 "ERROR: $dir not found or not a directory"
+        exit 1
+    fi
+
+    zfBase=$(basename "$(readlink -f "$dir")")
+
+    if [[ "$zfBase" = .* ]]; then
+        zfBase="${zfBase/./_}"
+    fi
+
+    if [ -n "$withTimestamp" ]; then
+        ts=$(date "+%Y-%m-%dT%H%M%S.%03N")
+        zfBase=$zfBase-$ts
+    fi
+    archiveName=$zfBase.$EXT
+
+    if [[ -e "$archiveName" ]]; then
+        i=1
+        while [[ -e "$archiveName" ]]; do
+            archiveName=$zfBase-$i.$EXT
+            (( i = i + 1 ))
+        done
+        echo "Warning: Archive file $zfBase.$EXT already exists. Using $archiveName"
+    fi
+
+    echo tar -czvf "$archiveName" "$dir"
+    tar -czvf "$archiveName" "$dir"
+}
+
+for d in "$@"; do
+    tarit "$d"
+done
+

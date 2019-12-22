@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# click to start, click to stop
+
+if gconftool-2 -g /apps/gnome-screensaver/idle_activation_enabled | grep true; then
+    gconftool-2 -s /apps/gnome-screensaver/idle_activation_enabled --type=bool false
+    notify-send --expire-time=50 "Screen Saver" "Disabled"
+else
+    gconftool-2 -s /apps/gnome-screensaver/idle_activation_enabled --type=bool true
+    notify-send  --expire-time=50 "Screen Saver" "Enabled"
+fi
+
+
