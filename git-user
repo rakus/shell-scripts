@@ -131,7 +131,7 @@ if [ -n "$repoid" ]; then
         fi
     fi
 
-    execute echo "${repoid}:${email//:/\\:}:${user//:/\\:}"  >> "$repoUserFile"
+    execute echo "${repoid}:${user//:/\\:}:${email//:/\\:}"  >> "$repoUserFile"
 else
     if [ -n "$(git config --local user.name)" ] || [ -n "$(git config --local user.email)" ]; then
         if [ "$force" != "true" ]; then
