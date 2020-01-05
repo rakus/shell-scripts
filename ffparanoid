@@ -102,5 +102,9 @@ cp -r "$src_profile_path" "$tgt_profile_path"
 # Replace references to src directory with new target directory
 find "$tgt_profile_path" -type f -print0 | xargs -0 perl -pi -e "s%$src_profile_path%$tgt_profile_path%g"
 
+mkdir "$tgt_profile_path/My-Cache"
+
+echo "user_pref(\"browser.cache.disk.parent_directory\", \"$tgt_profile_path/My-Cache\");" >> "$tgt_profile_path/user.js"
+
 firefox -profile "$tgt_profile_path" --no-remote "$@"
 
