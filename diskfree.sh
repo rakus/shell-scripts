@@ -19,7 +19,8 @@ severe_limit=90
 ok_color=$(tput bold;tput setaf 2)
 warn_color=$(tput bold;tput setaf 3)
 severe_color=$(tput bold;tput setaf 1)
-color_off=$(tput sgr0)
+bold=$(tput bold)
+rst=$(tput sgr0)
 
 term_cols=$(tput cols)
 if [ "$term_cols" -gt "101" ]; then
@@ -29,6 +30,9 @@ fi
 printDiskUsage()
 {
     read -r device mount_point size used free percent <<< "$(df -h --output=source,target,size,used,avail,pcent "$1" | tail -n1 2> /dev/null)"
+    if [ -z "$device" ]; then
+        return
+    fi
 
     percent="${percent%\%}"
 
@@ -43,17 +47,20 @@ printDiskUsage()
         color=$ok_color
     fi
 
+    echo
     echo "Mount point: $mount_point"
     echo "File system: $device"
-    printf "Total size: %s | Used space: %s | Free space: %s | Used space percent: %d%%\n" "$size" "$used" "${color}$free${color_off}" "$percent"
+    printf "Total size: ${bold}%5s${rst}" "$size"
+    printf " | Used space: ${bold}%5s${rst}" "$used"
+    printf " | Free space: %s%5s${rst}" "${color}" "$free"
+    printf " | Used space percent: ${bold}%3d%%${rst}\n" "$percent"
 
     echo -ne "[${color}"
     [ $used_bar -gt 0 ] && printf '#%.0s' $(seq 1 $used_bar)
-    echo -ne "${color_off}"
+    echo -ne "${rst}"
 
     [ $free_bar -gt 0 ] && printf '=%.0s' $(seq 1 $free_bar)
-    echo "]${color_off}"
-    echo
+    echo "]${rst}"
 }
 
 #---------[ MAIN ]-------------------------------------------------------------
@@ -71,7 +78,6 @@ while getopts "a" o "$@"; do
 done
 shift $((OPTIND-1))
 
-echo
 if [ $# != 0 ]; then
     for fs in "$@"; do
         printDiskUsage "$fs"
@@ -91,3 +97,4 @@ else
         esac
     done <<< "$(df --output=target,fstype  | tail -n +2)"
 fi
+echo
