@@ -407,7 +407,7 @@ class VersionEntry(Section):
         else:
             try:
                 self.version = Version(match.group("version"))
-            except InvalidVersionException, exc:
+            except InvalidVersionException as exc:
                 raise ValidateException(self, "%s" % str(exc))
 
             self.date = match.group("date")
@@ -746,7 +746,7 @@ class ChangeLog(object):
             backup_file = self.filename + ".kaclBackup"
             try:
                 os.remove(backup_file)
-            except OSError, exc:
+            except OSError as exc:
                 if exc.errno == errno.ENOENT:
                     pass
                 else:
@@ -980,7 +980,7 @@ def handle_options(sys_argv):
             else:
                 error("Can't handle option \"%s\" -- implementation error" % opt)
                 raise SystemExit(1)
-    except getopt.GetoptError, exc:
+    except getopt.GetoptError as exc:
         error(str(exc))
         raise SystemExit(1)
 
@@ -1023,9 +1023,9 @@ def main():
         else:
             error("Unknown command: %s" %cmd)
             print(__doc__)
-    except KaclException, exc:
+    except KaclException as exc:
         error(str(exc))
-    except IOError, exc:
+    except IOError as exc:
         error(str(exc))
 
     return exit_code
