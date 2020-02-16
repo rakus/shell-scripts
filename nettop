@@ -12,24 +12,32 @@ if [ "$(id -un)" != "root" ]; then
     exec sudo "$0" "$@"
 fi
 
-if_list=$(ifconfig | grep -C 1  "inet addr"  | grep Ether | cut "-d " -f 1)
+typeset -a if_list
+for iface in $(ip -o a | cut '-d ' -f2 | sort -u); do
+    case $iface in
+        lo) : ;;
+        docker*) : ;;
+        vir*) : ;;
+        *)
+            if_list+=( "$iface" )
+            ;;
+    esac
+done
 
-cnt=$(echo "$if_list" | wc -l)
-
-if [ "$cnt" -gt 1 ]; then
-    select i in $if_list; do
-        interf=$i
-        break
-    done
-else
-    interf=$if_list
-fi
-
-if [ -z "$interf" ]; then
+if [ "${#if_list[@]}" -eq 0 ]; then
     echo >&2 "No interface"
     exit 1
 fi
 
+if [ "${#if_list[@]}" -gt 1 ]; then
+    select i in "${if_list[@]}"; do
+        interf=$i
+        break
+    done
+else
+    interf="${if_list[0]}"
+fi
+
 echo "Starting iftop on interface $interf"
-sudo iftop -i "$interf"
+iftop -i "$interf"
 
