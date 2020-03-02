@@ -1,0 +1,27 @@
+#!/bin/sh
+#
+# vipe - Use VIM in a pipe
+#
+
+# create temporary file
+tmpfile=$(mktemp --tmpdir vipe.pipe.XXXXX)
+# make sure the file is deleted on script exit
+trap "rm -f $tmpfile" EXIT
+
+# cat stdin to the new temp file
+cat > "$tmpfile"
+
+# start vim with the temp file. Temporary changing cmdheight to 2 prevents a
+# "hit return" prompt after the echoed message.
+# Redirection from/to /dev/tty prevents problems regarding in/output not a
+# terminal
+vim -c 'set cmdheight=2|echohl WarningMsg| echo "Use :cq to exit with error code and suppress output"|echohl None|set cmdheight=1' "$tmpfile" </dev/tty >/dev/tty
+if [ $? != 0 ]; then
+    # Vim exited with error code (most likely due to :cq)
+    # -> don't print file and return error
+    exit 1
+fi
+
+# cat the written file
+cat "$tmpfile"
+
