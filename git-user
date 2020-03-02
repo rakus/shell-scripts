@@ -9,6 +9,7 @@
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 script_name="$(basename "$0")"
+#script_file="$script_dir/$script_name"
 
 # shellcheck source=git.shlib
 . "$script_dir/git.shlib"
@@ -39,25 +40,57 @@ show_help()
 {
     echo >&2 "Sets user.name and user.email local for the current repository."
     echo >&2 ""
-    echo >&2 "Usage: $script_name [-n] <repo-id>"
-    echo >&2 "   determine user & email from ${repoUserFile/$HOME/\~} using given id"
+    echo >&2 "Usage: $script_name [-l]"
+    echo >&2 "   List user.name & user.email."
     echo >&2 ""
-    echo >&2 "Usage: $script_name [-n] -r <repo-id> <user> <email>"
-    echo >&2 "   Store user & email in ${repoUserFile/$HOME/\~} with given id"
+    echo >&2 "Usage: $script_name -s <repo-id>"
+    echo >&2 "   Set user & email as specified in ${repoUserFile/$HOME/\~}"
     echo >&2 ""
-    echo >&2 "Options"
-    echo >&2 "   -n    Noop - just print what would be done"
-    echo >&2 "   -f    set user & email even if already set"
-    echo >&2 "         or override already registered repo-id"
+    echo >&2 "Usage: $script_name -s <user> <email>"
+    echo >&2 "   Set user & email as given"
+    echo >&2 ""
+    echo >&2 "Usage: $script_name -s"
+    echo >&2 "   Determine repo-id from git remote and set user & email as specified in ${repoUserFile/$HOME/\~}"
+    echo >&2 ""
     echo >&2 ""
     echo >&2 "Format of ${repoUserFile/$HOME/\~}:"
+    echo >&2 "   :repo:<remote-url-part>:<repo-id>"
     echo >&2 "   <repo-id>:<user>:<email>"
+    echo >&2 ""
+    echo >&2 "E.g. (note first match is taken):"
+    echo >&2 "   :repo:github.com\:joedoe:private"
+    echo >&2 "   :repo:github.com:github"
+    echo >&2 "   :repo:acme.com:acme"
+    echo >&2 "   github:Joe Doe:joe.doe@users.noreply.github.com"
+    echo >&2 "   acme:Joe Doe:joe.doe@acme.com"
+    echo >&2 "   private:Joe Doe:joe.doe@email.com"
     echo >&2 ""
     if [ -e "$repoUserFile" ]; then
         echo >&2 "Current content of ${repoUserFile/$HOME/\~}:"
         sed 's/^/    /' "$repoUserFile"
         echo >&2 ""
     fi
+}
+
+set_identity_by_id()
+{
+    line="$(grep -v "^#" "$repoUserFile" | grep "^${1}:")"
+    if [ -z "$line" ]; then
+        echo "Possible repo-ids:"
+        grep '^[A-Za-z]*:' "$repoUserFile" | cut -d: -f1
+        exit 1
+    fi
+    # shellcheck disable=SC2162 # no -r cause we want backslash escapes
+    IFS=':' read -a line_parts <<< "$line"
+    set_identity "${line_parts[1]}" "${line_parts[2]}"
+}
+
+set_identity()
+{
+    echo "Set user.name=$1"
+    execute git config --local user.name "$1"
+    echo "Set user.email=$2"
+    execute git config --local user.email "$2"
 }
 
 show_version()
@@ -67,83 +100,52 @@ show_version()
 
 assertGitDir
 
-repoid=""
-noop=""
+mode="list"
 force=""
-eval "$(parseargs -gn "git user" -o "n:noop#noop,r:register=repoid,f:force#force" -- "$@")" || exit 7
+noop=""
+eval "$(parseargs -gn "git user" -o "l:list#mode=list,s:set#mode=set,f:force#force,n:dry-run#noop" -- "$@")" || exit 7
 
-if [ -n "$repoid" ] && [ "$#" -ne "2" ]; then
-    echo >&2 "ERROR: Need user name and email for registering"
-    exit 1
-fi
+git_user="$(git config --local user.name)"
+git_email="$(git config --local user.email)"
 
-if [ "$#" == 1 ]; then
-    line="$(grep -v "^#" "$repoUserFile" | grep "^${1}:")"
-    if [ -z "$line" ]; then
-        echo "Possible repo-ids:"
-        grep '^[A-Za-z]*:' "$repoUserFile" | cut -d: -f1
-        exit 1
-    fi
-    # shellcheck disable=SC2162 # no -r cause we want backslash escapes
-    IFS=':' read -a line_parts <<< "$line"
-    user="${line_parts[1]}"
-    email="${line_parts[2]}"
-elif [ "$#" == 2 ]; then
-    user="$1"
-    email="$2"
-elif [ "$#" == 0 ]; then
-    echo "User:  $(git config --local user.name)"
-    echo "Email: $(git config --local user.email)"
+if [ "$mode" = "list" ]; then
+    echo "User:   $git_user"
+    echo "Email:  $git_email"
     exit 0
-fi
+elif [ "$mode" = "set" ]; then
+    if [ -n "$git_user" ] && [ -n "$git_email" ]; then
+        if [ -z "$force" ]; then
+            echo "User:   $git_user"
+            echo "Email:  $git_email"
+            echo >&2 "User and email already set. User '-f' to overwrite."
+            exit 1
+        fi
+    fi
+    if [ "$#" == 1 ]; then
+        set_identity_by_id "$1"
+        exit 0
+    elif [ "$#" == 2 ]; then
+        set_identity "$1" "$2"
+        exit 0
+    elif [ "$#" == 0 ]; then
+        git_url="$(git remote get-url --push origin)"
 
-user="$(trim "$user")"
-email="$(trim "$email")"
+        while read -r line; do
+            IFS=':' read -a line_parts <<< "$line"
+            if [[ "$git_url" = *"${line_parts[0]}"* ]]; then
+                echo "Detected: ${line_parts[1]}"
+                set_identity_by_id "${line_parts[1]}"
+                exit 0
+            fi
+        done < <(grep "^:repo:" $HOME/.git_repo_users | sed 's/^:repo://')
 
-#echo "User:  >>$user<<"
-#echo "Email: >>$email<<"
+        echo >&2 "ERROR: Couldn't detect which user and email to use"
 
-if [ -z "$user" ]; then
-    echo >&2 "ERROR: User is empty: \"$user\""
-    exit 1
-fi
-if [ -z "$email" ] || [[ "$email" != *@* ]]; then
-    echo >&2 "ERROR: Invalid email: \"$email\""
-    exit 1
-fi
-
-if [ -n "$repoid" ]; then
-    if [[ $repoid = *:* ]]; then
-        echo >&2 "ERROR: repo-id must not contain a ':': $repoid"
+        exit 1
+    else
+        echo >&2 "ERROR: Net username and email to set identity."
         exit 1
     fi
-
-    if grep -q "^${repoid}:" "$repoUserFile"; then
-        if [ "$force" = "true" ]; then
-            if [ -z "$noop" ]; then
-                tmp_file="$(mktemp)"
-                grep -v "^${repoid}:" "$repoUserFile" > "$tmp_file"
-                mv -f "$tmp_file" "$repoUserFile"
-            fi
-        else
-            echo >&2 "ERROR: Repo-id \"$repoid\" already registered. Use -f to overwrite"
-            exit 1
-        fi
-    fi
-
-    execute echo "${repoid}:${user//:/\\:}:${email//:/\\:}"  >> "$repoUserFile"
-else
-    if [ -n "$(git config --local user.name)" ] || [ -n "$(git config --local user.email)" ]; then
-        if [ "$force" != "true" ]; then
-            echo >&2 "ERROR: User and/or email already set locally. Use -f to overwrite"
-            echo >&2 "    User:  $(git config --local user.name)"
-            echo >&2 "    Email: $(git config --local user.email)"
-            exit 1
-        fi
-    fi
-    echo "Set user.name=$user"
-    execute git config --local user.name "$user"
-    echo "Set user.email=$email"
-    execute git config --local user.email "$email"
 fi
+
 
