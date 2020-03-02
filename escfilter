@@ -6,10 +6,9 @@
 #
 # AUTHOR: Ralf Schandl
 #
-# $Id: escfilter 50 2011-03-27 17:33:37Z rks $
-#
 
-while read l; do
+while read -r l; do
+    # shellcheck disable=SC2001
     echo "$l" | sed "s/\[[^A-Za-z]*[A-Za-z]//"
 done
 

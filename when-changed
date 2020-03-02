@@ -37,7 +37,8 @@ executeCmd()
     typeset fn="$1"
     shift
 
-    IFS=$'\n' actCmd=($(printf "%s\n" "$@" | sed "s|%f|$fn|"))
+    #IFS=$'\n' actCmd=($(printf "%s\n" "$@" | sed "s|%f|$fn|"))
+    actCmd=( "${@/\%f/$fn}" )
     if [ -z "$quiet" ]; then
         echo "Changed:   $fn"
         echo "Executing: ${actCmd[*]}"
@@ -109,8 +110,10 @@ fi
 #
 files=()
 for fn in "$@"; do
-    f="$(readlink -f "$fn")"
-    [ $? -ne 0 ] && echo >&2 "ERROR: Cannot watch file '$fn'. (Non-existing parent dir?)" && exit 1
+    if ! f="$(readlink -f "$fn")"; then
+        echo >&2 "ERROR: Cannot watch file '$fn'. (Non-existing parent dir?)"
+        exit 1
+    fi
     [ -d "$f" ] && echo >&2 "ERROR: Cannot watch a directory: '$fn'" && exit 1
     [ ! -e "$f" ] && echo >&2 "WARNING: File '$fn' does not exist. Waiting for it to emerge."
     files+=( "$f" )
@@ -126,7 +129,8 @@ done
 # Make directories uniq
 oldIFS="$IFS"
 IFS=$'\n'
-dirs=($(printf "%s\n" "${dirs[@]}" | sort -u))
+#dirs=($(printf "%s\n" "${dirs[@]}" | sort -u))
+readarray -t dirs < <(printf '%s\n' "${dirs[@]}" | sort -u)
 IFS="$oldIFS"
 
 if [ -n "$verbose" ]; then
