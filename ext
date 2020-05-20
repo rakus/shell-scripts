@@ -124,6 +124,7 @@ compressionType["application/x-compress"]=".Z"
 compressionType["application/x-lzip"]=".lz"
 compressionType["application/x-xz"]=".xz"
 compressionType["application/zip"]=".zip"
+compressionType["application/x-msi"]=".msi"
 
 
 expandCmd[".tar.gz"]="tar -xzvf %s"
@@ -222,10 +223,13 @@ expandCmd[".chm"]="archmage -x %s  ./%t_html"
 listCmd[".chm"]=""
 checkCmd[".chm"]=""
 
+expandCmd[".msi"]="msiextract %s"
+listCmd[".msi"]="msiextract --list %s"
+checkCmd[".msi"]="msiextract --list %s"
+
 function log
 {
     [ "$verbose" -ge 1 ] && echo >&2 "INFO: $*"
-
 }
 
 function debug
@@ -293,7 +297,6 @@ function checkPrg
 function checkInstalledPackers
 {
     echo "Checking programms ..."
-    typeset indent="    "
     typeset -a supported
     typeset -a unsupported
     typeset -a sOptionUnsupported
@@ -323,11 +326,14 @@ function checkInstalledPackers
 
         # Check programs
         missingCmd=()
+        oldIFS="$IFS"
+        IFS=' '
         for c in $cmd; do
             if ! checkPrg "$c"; then
                 missingCmd+=( "$c" )
             fi
         done
+        IFS="$oldIFS"
 
         if [[ -z "$sOptionCmd" ]]; then
             sOptionUnsupported+=( "$ft" );
@@ -337,34 +343,21 @@ function checkInstalledPackers
             supported+=( "$ft" )
         else
             # shellcheck disable=SC2207
-            IFS=$'\n' missingCmd=($(sort <<<"${missingCmd[*]}"))
-            unsupported+=( "$ft (Missing: ${missingCmd[*]})" )
+            IFS=$'\n' missingCmd=($(sort -u <<<"${missingCmd[*]}"))
+            unsupported+=( "$ft (Missing: ${missingCmd[@]//$'\n'})" )
         fi
     done
 
-    # shellcheck disable=SC2207
-    IFS=$'\n' supported=($(sort <<<"${supported[*]-}"))
-    # shellcheck disable=SC2207
-    IFS=$'\n' unsupported=($(sort <<<"${unsupported[*]-}"))
-    # shellcheck disable=SC2207
-    IFS=$'\n' sOptionUnsupported=($(sort <<<"${sOptionUnsupported[*]-}"))
-
     echo ""
     echo "SUPPORTED"
-    for s in "${supported[@]-"--"}"; do
-        echo "$indent$s"
-    done
+    printf "    %s\n" "${supported[@]-"--"}" | sort -u
     echo
     echo "NOT SUPPORTED"
-    for s in "${unsupported[@]-"--"}"; do
-        echo "$indent$s"
-    done
+    printf "    %s\n" "${unsupported[@]-"--"}" | sort -u
     echo
 
     echo "Option '-S' (see help) not supported for:"
-    for s in "${sOptionUnsupported[@]-"--"}"; do
-        echo "$indent$s"
-    done
+    printf "    %s\n" "${sOptionUnsupported[@]-"--"}" | sort -u
 }
 
 function getExtension
@@ -433,10 +426,19 @@ function getCmd
         fqName=$(readlink -f "$PWD/$name")
     fi
 
-    typeset ftTxt=$(LC_ALL=C file -bzi "$fqName" 2>/dev/null)
+    #typeset ftTxt=$(LC_ALL=C file -bzi "$fqName" 2>/dev/null)
 
-    typeset fTyp=$(echo "$ftTxt" | cut '-d;' -f1)
-    typeset fCompression=$(echo "$ftTxt" | grep compressed-encoding=|sed "s/^.* compressed-encoding=//"| cut '-d;' -f1)
+    #typeset fTyp=$(echo "$ftTxt" | cut '-d;' -f1)
+    #typeset fCompression=$(echo "$ftTxt" | grep compressed-encoding=|sed "s/^.* compressed-encoding=//"| cut '-d;' -f1)
+
+    typeset fTyp="$(file -bz --mime-type "$fqName")"
+    typeset fCompression="$(file -b --mime-type "$fqName")"
+
+    if [ "$fTyp" = "$fCompression" ]; then
+        fCompression=''
+    fi
+
+
 
     debug "$name: mime-type: '$fTyp', compressed-encoding: '$fCompression'"
 
@@ -693,14 +695,18 @@ for archive in "$@"; do
         echo "Extracting \"$archive\" to \"$tgtDir\""
         cmd=$extractCmd
     elif [ "$mode" = "listMode" ]; then
+        if [[ -z "$listingCmd" ]]; then
+            echo "Listing content ('-l') is not supported for this archive type"
+            exit 1
+        fi
         echo "Listing \"$archive\""
         cmd="$listingCmd"
     elif [ "$mode" = "topLevelList" ]; then
-        echo "Listing top-level directories of \"$archive\""
         if [[ -z "$dircheckCmd" ]]; then
-            echo "'-L' not supported for this archive type"
+            echo "Listing top-level directories ('-L') is not supported for this archive type"
             exit 1
         fi
+        echo "Listing top-level directories of \"$archive\""
         cmd="$dircheckCmd | cut -d/ -f1 | sort -u"
 
     else

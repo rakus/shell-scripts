@@ -54,7 +54,7 @@ logfileBasename="extract-test.log"
 
 OK="[01;32mOK[0m"
 ERROR="[01;31mERROR[0m"
-WARN="[31mWARNING[0m"
+WARN="[33mWARNING[0m"
 
 eval "$(resize)"
 if [[ -n "$COLUMNS" ]]; then
@@ -68,7 +68,7 @@ else
 fi
 OK_SUFFIX="[${OK_COL}G[[01;32mOK[0m]"
 ERROR_SUFFIX="[${ERR_COL}G[[01;31mERROR[0m]"
-WARN_SUFFIX="[${WARN_COL}G[[31mWARNING[0m]"
+WARN_SUFFIX="[${WARN_COL}G[[33mWARNING[0m]"
 
 export PATH=$script_dir/..:$script_dir:$PATH
 
@@ -161,7 +161,8 @@ function pack
     if [[ $? -eq 0 ]]; then
         msgTestOK
     else
-        msgTestERROR
+        #msgTestERROR
+        msgTestWARNING
         registerPackError "$cmd"
         [[ -e "$2" ]] && rm "$2"
     fi
@@ -655,9 +656,9 @@ done
 # extension. The archive type can then only be detected by file content.
 for fn in arch.*; do
     case $fn in
-        # /bin/file can't look into 7z archives, hence can't detect the tar
-        # inside
-        *.t7z | *.tar.7z)
+        # /bin/file can't look into 7z or lzma archives, hence can't detect the
+        # tar inside
+        *.t7z | *.tar.7z | *.tar.lzma)
         continue
         ;;
         *)
@@ -792,6 +793,7 @@ fi
 msg "No tests implemented for:"
 msg "   *.rpm    RPM Package Management "
 msg "   *.chm    MS Windows HtmlHelp Data"
+msg "   *.msi    MS Installer"
 msg ""
 msg ""
 
