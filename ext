@@ -248,11 +248,22 @@ function error
 }
 
 #
+# Check whether the first argument is somewhere in the following.
+# Used like: contained x.txt "${file[@]}"
+#
+contained()
+{
+    local e
+    for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
+    return 1
+}
+
+#
 # Checks if the given parameter is a function or program.
 # Uses prgOk and prgError as caches, so that each name is only checked once.
 #
-prgOk=""
-prgError=""
+typeset -a prgOk=()
+typeset -a prgError=()
 function checkPrg
 {
     typeset prg=$1
@@ -270,18 +281,17 @@ function checkPrg
         ERROR_SUFFIX="\tNot Found"
     fi
 
-
-    if [[ 1 -eq $(echo "$prgOk" | grep -c " $prg " 2>/dev/null) ]]; then
+    if contained "$prg" "${prgOk[@]}"; then
         return 0
-    elif [[ 1 -eq $(echo "$prgError" | grep -c " $prg " 2>/dev/null) ]]; then
+    elif contained "$prg" "${prgError[@]}"; then
         return 1
     fi
     if ! type "$c" >/dev/null 2>&1; then
-        prgError="$prgError $prg "
+        prgError+=( $prg )
         echo -e "$prg$ERROR_SUFFIX"
         return 1
     else
-        prgOk="$prgOk $prg "
+        prgOk+=( $prg )
         echo -e "$prg$OK_SUFFIX"
         return 0
     fi
