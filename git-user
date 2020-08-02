@@ -131,13 +131,13 @@ elif [ "$mode" = "set" ]; then
         git_url="$(git remote get-url --push origin)"
 
         while read -r line; do
-            IFS=':' read -a line_parts <<< "$line"
+            IFS=':' read -r -a line_parts <<< "$line"
             if [[ "$git_url" = *"${line_parts[0]}"* ]]; then
                 echo "Detected: ${line_parts[1]}"
                 set_identity_by_id "${line_parts[1]}"
                 exit 0
             fi
-        done < <(grep "^:repo:" $HOME/.git_repo_users | sed 's/^:repo://')
+        done < <(grep "^:repo:" "$HOME/.git_repo_users" | sed 's/^:repo://')
 
         echo >&2 "ERROR: Couldn't detect which user and email to use"
 

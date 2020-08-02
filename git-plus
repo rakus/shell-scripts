@@ -3,8 +3,9 @@
 # Interactive stage files.
 #
 
-script_dir=$(dirname "$(readlink -f "$0" )" )
+script_dir="$(cd "$(dirname "$0")" && pwd)" || exit 1
 
+# shellcheck source=git.shlib
 . "$script_dir/git.shlib"
 
 #set -u
@@ -14,9 +15,8 @@ script_dir=$(dirname "$(readlink -f "$0" )" )
 doGit()
 {
     echo "git $*"
-    if [ ! $dryRun ]; then
-	git "$@"
-	[ $? != 0 ] && exit 1
+    if [ -z "${dryRun:-}" ]; then
+	git "$@" || exit 1
     fi
 }
 
@@ -70,19 +70,21 @@ show_version() {
 cdGitRoot
 
 aCmd=$(parseargs -n "git plus" -go "a:all#all,dry-run#dryRun,s:settings#settings" -- "$@")
+# shellcheck disable=SC2181
 [ $? != 0 ] && exit 7
 #echo "$aCmd"
-eval "$aCmd"
-[ $? -ne 0 ] && exit 7
+eval "$aCmd" || exit 7
 
-if [ $all ]; then
+if [ -n "${all:-}" ]; then
     untracked="--untracked-files=all"
 else
     untracked=
 fi
 
 TMPFILE=$(mktemp -t GIT_PLUS.XXXX)
-trap "rm -f \"$TMPFILE\"" EXIT
+
+# shellcheck disable=SC2064
+trap "rm -f '$TMPFILE'" EXIT
 
 cat << END > "$TMPFILE"
 #
@@ -98,7 +100,7 @@ END
 # - For renamed&changed files insert original line as comment and the line with original name removed
 
 changes=$(git status --porcelain $untracked | grep "^.[^ ]" | sed "s/^\(R[^ ]\) .* -> \(.*\)$/# \0\n\1 \2/")
-if [ ! $settings ]; then
+if [ -z "${settings:-}" ]; then
     if echo "$changes" | grep "/\.settings/" >/dev/null 2>&1; then
         {
             echo "# FILTERED: Changes in Eclipse directories '.settings' were filtered out"
@@ -135,6 +137,6 @@ if [ -n "$ignLines" ]; then
     echo >&2 -e "WARNING: The following lines could not be processed:$ignLines"
 fi
 
-if [ $dryRun ]; then
+if [ -n "${dryRun}" ]; then
     echo "DRY RUN: no git commands executed"
 fi
