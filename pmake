@@ -48,6 +48,7 @@ else
 
     if [ -z "$makefile" ]; then
         echo >&2 "No Makefile found"
+        exit 7  # Use exit code not used by GNU make
     elif [ "$make_dir" = "$(pwd)" ]; then
         make "$@"
     else
