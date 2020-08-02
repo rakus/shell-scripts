@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 #
 # FILE: git.shlib
 #
@@ -15,9 +16,10 @@
 doGit()
 {
     echo "git $*"
-    if [ ! $dryRun ]; then
-	git "$@"
-	[ $? != 0 ] && exit 1
+    if [ -z "${dryRun:-}" ]; then
+	if ! git "$@"; then
+            exit 1
+        fi
     fi
 }
 
@@ -35,7 +37,7 @@ assertGitDir()
 
 getGitRemote()
 {
-    if [ $(git remote | wc -l) -ne 1 ]; then
+    if [ "$(git remote | wc -l)" -ne 1 ]; then
         echo >&2 "Multiple remotes -- don't know which to use"
         exit 1
     fi
@@ -64,8 +66,9 @@ isGitDir()
 #
 gitFetchAll()
 {
-    git fetch --all --prune --tags
-    [ $? -ne 0 ] && exit 1
+    if ! git fetch --all --prune --tags; then
+        exit 1
+    fi
 }
 
 
@@ -76,6 +79,7 @@ gitFetchAll()
 #
 cdGitRoot()
 {
+    # shellcheck disable=SC2155
     local gitDir="$(git rev-parse --git-dir 2>/dev/null)"
     if [ -z "$gitDir" ]; then
 	echo >&2 "ERROR: Current directory is not part of a git repository - exit."
@@ -84,8 +88,7 @@ cdGitRoot()
 	gitDir=$(readlink -f "$gitDir")
     fi
     gitDir=$(dirname "$gitDir")
-    cd "$gitDir"
-    [ $? -ne 0 ] && exit 1
+    cd "$gitDir" || exit 1
 }
 
 
@@ -94,6 +97,7 @@ cdGitRoot()
 # file, exit with code 1
 #
 # $1: The file to edit.
+# $2: array name to load the file (excluding comments, empty lines)
 #
 editFileExitNoChange()
 {
@@ -115,5 +119,30 @@ editFileExitNoChange()
 	exit 1
     fi
 
+    if [ -n "${2:-}" ]; then
+        declare -n array=$2
+
+        mapfile -t array < <(grep -v -P '^[ \t]*(#.*)?$' "$tmpFile")
+    fi
+
 }
 
+#
+# Reads the file into the given array, filtering out
+# comments and empty lines.
+# Lines with the first non-space character is a '#' are
+# comments. Empty lines contain no non-space characters.
+#
+# $1: file name
+# $2: array name
+#
+readFileFiltered()
+{
+    # shellcheck disable=SC2178
+    declare -n array=$2
+
+    # shellcheck disable=SC2034
+    mapfile -t array < <(grep -v -P '^[ \t]*(#.*)?$' "$1")
+}
+
+# vim: ft=sh
