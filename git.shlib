@@ -79,15 +79,13 @@ gitFetchAll()
 #
 cdGitRoot()
 {
+
     # shellcheck disable=SC2155
-    local gitDir="$(git rev-parse --git-dir 2>/dev/null)"
+    local gitDir="$(git rev-parse --show-toplevel 2>/dev/null)"
     if [ -z "$gitDir" ]; then
 	echo >&2 "ERROR: Current directory is not part of a git repository - exit."
 	exit 1
-    else
-	gitDir=$(readlink -f "$gitDir")
     fi
-    gitDir=$(dirname "$gitDir")
     cd "$gitDir" || exit 1
 }
 
