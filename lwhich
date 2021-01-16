@@ -1,0 +1,77 @@
+#!/bin/bash
+#
+# FILE: lwhich
+#
+# ABSTRACT: Prints symlink chain of commands
+#
+# AUTHOR: Ralf Schandl
+#
+# CREATED: 2020-12-13
+#
+
+script_name="$(basename "$0")"
+
+# How many levels deep do we follow symlinks?
+MAX_LINK_LEVEL=16
+
+show_help()
+{
+    echo "USAGE: $script_name [options] COMMAND [...]"
+    echo "Write the full path of COMMAND(s) to standard output."
+    echo "If a COMMAND is a symbolic link, print the link chain."
+    echo ""
+    echo "   -a, --all     Print all matches in PATH, not just the first"
+    echo "   -t, --target  Print only final element of link chain"
+    echo ""
+}
+
+show_version()
+{
+    echo "$script_name  V1.0.0"
+}
+
+
+all=''
+target=''
+eval "$(parseargs -e show_help -go "a:all#all,t:target#target" -- "$@")"
+
+if [ $# -eq 0 ]; then
+    show_help
+    exit 1
+fi
+
+exit_code=0
+IFS=$'\n'
+# shellcheck disable=SC2230  # which is not standard, but needed here
+for fn in $(which ${all:+-a} "$@"); do
+    wrc=$?
+    if [ $wrc -ne 0 ]; then
+        exit_code=$wrc
+    fi
+    arg="$fn"
+    cnt=0
+    while [ -L "$fn" ]; do
+        [ -z "$target" ] && printf '%s -> '  "$fn"
+        nfn=$(readlink "$fn")
+
+        case "$nfn" in
+            /*) : ;;
+            *) nfn="$(readlink -f "$(dirname "$fn")/$nfn")" ;;
+        esac
+        fn="$nfn"
+
+        cnt=$(( cnt + 1 ))
+        if [ $cnt -gt $MAX_LINK_LEVEL ]; then
+            fn='...'
+            break
+        fi
+    done
+    printf '%s\n' "$fn"
+    if [ $cnt -gt $MAX_LINK_LEVEL ]; then
+        printf >&2 'ERROR: %s: Too many levels of symbolic links\n' "$arg"
+        exit_code=$(( exit_code + 1 ))
+    fi
+done
+
+exit $exit_code
+
