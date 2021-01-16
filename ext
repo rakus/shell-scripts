@@ -189,7 +189,7 @@ checkCmd[".zoo"]="zoo -test %s|head -n -1|grep OK|sed 's/^Zoo: *//'|sed 's/^\.\?
 
 expandCmd[".rpm"]="rpm2cpio %s | cpio -ivdm"
 listCmd[".rpm"]="rpm2cpio %s | cpio -ivdm --list"
-checkCmd[".rpm"]="cat %s | cpio -idm --list 2>/dev/null"
+checkCmd[".rpm"]="rpm2cpio %s | cpio -idm --list 2>/dev/null"
 
 expandCmd[".deb"]="dpkg -X %s ."
 listCmd[".deb"]="dpkg -c %s"
@@ -537,7 +537,7 @@ function determineSingleDir
         return
     fi
 
-    x=$(eval "$dircheckCmd" | cut -d/ -f1 | uniq | wc -l)
+    x=$(eval "$dircheckCmd" | sed 's|^\./||' | cut -d/ -f1 | uniq | wc -l)
 
     if [[ $x -eq 1 ]]; then
         return 0
@@ -717,7 +717,7 @@ for archive in "$@"; do
             exit 1
         fi
         echo "Listing top-level directories of \"$archive\""
-        cmd="$dircheckCmd | cut -d/ -f1 | sort -u"
+        cmd="$dircheckCmd | sed 's|^\./||' | cut -d/ -f1 | sort -u"
 
     else
         echo "Extracting \"$archive\""
