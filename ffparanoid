@@ -99,8 +99,17 @@ trap "rm -rf '$tgt_profile_path'" EXIT
 # copy source profile to target profile
 cp -r "$src_profile_path" "$tgt_profile_path"
 
+
+# see https://github.com/avih/dejsonlz4.git for (de)ffjsonlz4
+deffjsonlz4 "$tgt_profile_path/addonStartup.json.lz4" "$tgt_profile_path/addonStartup.json"
+rm "$tgt_profile_path/addonStartup.json.lz4"
+
 # Replace references to src directory with new target directory
 find "$tgt_profile_path" -type f -print0 | xargs -0 perl -pi -e "s%$src_profile_path%$tgt_profile_path%g"
+
+ffjsonlz4 "$tgt_profile_path/addonStartup.json" "$tgt_profile_path/addonStartup.json.lz4"
+rm "$tgt_profile_path/addonStartup.json"
+rm -rf "$tgt_profile_path/datareporting"
 
 mkdir "$tgt_profile_path/My-Cache"
 
