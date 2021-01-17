@@ -23,8 +23,8 @@ bold=$(tput bold)
 rst=$(tput sgr0)
 
 term_cols=$(tput cols)
-if [ "$term_cols" -gt "101" ]; then
-    term_cols=101
+if [ "$term_cols" -gt "103" ]; then
+    term_cols=103
 fi
 
 printDiskUsage()
@@ -53,7 +53,7 @@ printDiskUsage()
     printf "Total size: ${bold}%5s${rst}" "$size"
     printf " | Used space: ${bold}%5s${rst}" "$used"
     printf " | Free space: %s%5s${rst}" "${color}" "$free"
-    printf " | Used space percent: ${bold}%3d%%${rst}\n" "$percent"
+    printf " | Used percent: ${bold}%3d%%${rst}\n" "$percent"
 
     echo -ne "[${color}"
     [ $used_bar -gt 0 ] && printf '#%.0s' $(seq 1 $used_bar)
