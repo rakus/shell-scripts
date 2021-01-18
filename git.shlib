@@ -7,6 +7,8 @@
 # AUTHOR: Ralf Schandl
 #
 
+THE_EDITOR="${GIT_EDITOR:-${VISUAL:-${EDITOR:-vi}}}"
+
 #
 # Execute git unless the variable "dryRun" is set to non-empty.
 # Exist if git command fails.
@@ -106,7 +108,7 @@ editFileExitNoChange()
     oldTS=$(stat -c "%Y" "$tmpFile")
 
     # edit selection
-    ${EDITOR:=vi} "$tmpFile"
+    ${THE_EDITOR} "$tmpFile"
 
     # If not saved (so timestamp did not change) do nothing
     newTS=$(stat -c "%Y" "$tmpFile")
