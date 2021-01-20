@@ -899,7 +899,7 @@ def run_cmd(os_cmd, cwd):
     """ Run command and return stdout """
     prc = subprocess.Popen(os_cmd, stdout=subprocess.PIPE, stderr=DEVNULL, shell=True, cwd=cwd)
     output = prc.communicate()[0]
-    out = output.__str__().rstrip()
+    out = output.decode(sys.stdout.encoding).__str__().rstrip()
     debug("%s: Exit-Code: %d Output: >>%s<<" % (os_cmd, prc.returncode, out))
     return out
 
@@ -983,6 +983,9 @@ def handle_options(sys_argv):
     except getopt.GetoptError as exc:
         error(str(exc))
         raise SystemExit(1)
+
+    CONFIG = Config(scm=None, changelog=chglog_file, ignore_invalid=ignore_invalid,
+            filebackup=filebackup, quiet=quiet, debug=debug_level)
 
     if chglog_file is None:
         chglog_file = "CHANGELOG.md"
