@@ -113,18 +113,21 @@ mimeType["application/x-rpm"]=".rpm"
 mimeType["application/x-tar"]=".tar"
 mimeType["application/x-zoo"]=".zoo"
 mimeType["application/zip"]=".zip"
+mimeType["application/zstd"]=".zst"
 #mimeType["application/octet-stream"]=""
 
 compressionType["application/gzip"]=".gz"
 compressionType["application/jar"]=".zip"
 compressionType["application/java-archive"]=".zip"
 compressionType["application/vnd.oasis.opendocument.text"]=".zip"
+compressionType["application/x-7z-compressed"]=".7z"
 compressionType["application/x-bzip2"]=".bz2"
 compressionType["application/x-compress"]=".Z"
 compressionType["application/x-lzip"]=".lz"
 compressionType["application/x-xz"]=".xz"
 compressionType["application/zip"]=".zip"
 compressionType["application/x-msi"]=".msi"
+compressionType["application/zstd"]=".zst"
 
 
 expandCmd[".tar.gz"]="tar -xzvf %s"
@@ -154,6 +157,10 @@ checkCmd[".tar.lzma"]="7z x -so %s 2>/dev/null| tar -tf -"
 expandCmd[".tar.xz"]="tar -xJvf %s"
 listCmd[".tar.xz"]="tar -tJvf %s"
 checkCmd[".tar.xz"]="tar -tJf %s"
+
+expandCmd[".tar.zst"]="zstd -cd %s | tar -xvf -"
+listCmd[".tar.zst"]="zstd -cd %s | tar -tvf -"
+checkCmd[".tar.zst"]="zstd -cd %s | tar -tvf -"
 
 expandCmd[".tar"]="tar -xvf %s"
 listCmd[".tar"]="tar -tvf %s"
@@ -226,6 +233,11 @@ checkCmd[".chm"]=""
 expandCmd[".msi"]="msiextract %s"
 listCmd[".msi"]="msiextract --list %s"
 checkCmd[".msi"]="msiextract --list %s"
+
+expandCmd[".zst"]="zstd -d %s"
+listCmd[".zst"]="zstd -l %s"
+checkCmd[".zst"]=""
+
 
 function log
 {
@@ -444,11 +456,17 @@ function getCmd
     typeset fTyp="$(file -bz --mime-type "$fqName")"
     typeset fCompression="$(file -b --mime-type "$fqName")"
 
+    #
+    # Special handling for 7z, as the file command can't look into 7z archives.
+    #
+    if [ "$fTyp" = "application/x-7z-compressed" ]; then
+        fTyp="$(7z x -so "$fqName" | file -bz --mime-type -)"
+        fCompression="application/x-7z-compressed"
+    fi
+
     if [ "$fTyp" = "$fCompression" ]; then
         fCompression=''
     fi
-
-
 
     debug "$name: mime-type: '$fTyp', compressed-encoding: '$fCompression'"
 
@@ -466,17 +484,17 @@ function getCmd
     #
     # Special handling for 7z, as the file command can't look into 7z archives.
     #
-    if [ "$ext" = ".7z" ]; then
-        trace "File type ext: >>$ext<<"
-        case "$name" in
-            *.tar.7z)
-                ext=".tar.7z"
-                ;;
-            *.t7z)
-                ext=".tar.7z"
-                ;;
-        esac
-    fi
+    #if [ "$ext" = ".7z" ]; then
+    #    trace "File type ext: >>$ext<<"
+    #    case "$name" in
+    #        *.tar.7z)
+    #            ext=".tar.7z"
+    #            ;;
+    #        *.t7z)
+    #            ext=".tar.7z"
+    #            ;;
+    #    esac
+    #fi
     trace "File type ext: >>$ext<<"
 
     if [ -z "${expandCmd[$ext]+exists}" ]; then
