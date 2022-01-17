@@ -1,0 +1,100 @@
+#!/bin/bash
+#
+# FILE: termlist
+#
+# Create fzf-based selection list of open gnome-terminal tabs.
+#
+# AUTHOR: Ralf Schandl
+#
+# CREATED: 2021-06-12
+#
+
+script_name="$(basename "$0")"
+
+DBUS_DEST=org.gnome.Terminal
+DBUS_OBJ_PATH=/org/gnome/Terminal/SearchProvider
+
+# get UUIDs of all gnome-terminal tabs
+get_term_ids()
+{
+    # Call search with empty string ... will match all
+    dbus-send --session --dest=$DBUS_DEST --print-reply=literal \
+        $DBUS_OBJ_PATH \
+        org.gnome.Shell.SearchProvider2.GetInitialResultSet \
+        array:string:"" \
+        | tail -n 1 | sed 's/^  *//;s/ *]$//;s/  */,/g'
+}
+
+# get "uuid - term-title" list
+get_term_titles()
+{
+    ids="$(get_term_ids)"
+    dbus-send --session --dest=$DBUS_DEST  --print-reply=literal \
+        $DBUS_OBJ_PATH \
+        org.gnome.Shell.SearchProvider2.GetResultMetas \
+        "array:string:${ids%,}" \
+        | grep '^ *\(id\|name\) ' \
+        | sed \
+        -e 's/^ *id  *variant *\([^ ]*\) *)/id:\1/' \
+        -e '/^id/{N;s/\n/ /;};s/^id://' \
+        -e 's/  *name  *variant  */ /;s/  *)$//'
+}
+
+create_term_list()
+{
+    typeset -A terminals
+
+    while read -r id title; do
+        terminals[$id]="$title"
+    done <<< "$(get_term_titles)"
+
+    # enrich terminal title with cwd if not already in the title
+    for pid in $(ps -C bash -o pid=); do
+        GTS="$(grep -z GNOME_TERMINAL_SCREEN "/proc/$pid/environ" | tr -d '\0' | sed 's%.*/%%;s/_/-/g')"
+        if [ -n "$GTS" ]; then
+            if [ -n "${terminals[$GTS]}" ]; then
+                pwd="$(readlink "/proc/$pid/cwd" | sed "s%^$HOME%~%")"
+                if [[ "${terminals[$GTS]}" != *$pwd* ]]; then
+                    terminals[$GTS]="${terminals[$GTS]}  [$pwd]"
+                fi
+            fi
+        fi
+    done
+
+    for k in "${!terminals[@]}"; do
+        echo "$k ${terminals[$k]}"
+    done
+}
+
+# activate a term identified via uuid
+activate_term()
+{
+    dbus-send --session  --dest=$DBUS_DEST  --print-reply \
+        $DBUS_OBJ_PATH \
+        org.gnome.Shell.SearchProvider2.ActivateResult \
+        "string:$1" array:string:'' uint32:0 >/dev/null
+}
+
+usage()
+{
+    echo "Usage: $script_name [search-str]"
+}
+
+#---------[ MAIN ]-------------------------------------------------------------
+
+# No options supported
+eval "$(parseargs -n "$script_name" -e usage -- "$@")"
+
+if [ $# -gt 1 ]; then
+    echo >&2 "$script_name: To many arguments"
+    usage
+    exit 1
+fi
+
+result="$(create_term_list | fzf --with-nth 2.. "--query=${1:-}")"
+if [ -z "$result" ]; then
+    exit 1
+fi
+
+activate_term "${result%% *}"
+
