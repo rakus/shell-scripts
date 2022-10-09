@@ -13,6 +13,14 @@
 
 LOCATEDB=${HOME}/.locatedb
 
+# also omit this directories (space-separated)
+PRUNE_NAMES=".svn .metadata .gvfs .git __pycache__"
+
+#---------[ MAIN ]-------------------------------------------------------------
+
+prune_options=()
+prune_options+=(-n "$PRUNE_NAMES")
+
 # update locate db
-/usr/bin/updatedb -l 0 -o "${LOCATEDB}" -U "${HOME}" -n .svn -n .metadata -n .gvfs
+updatedb -l 0 -o "${LOCATEDB}" -U "${HOME}" "${prune_options[@]}"
 
