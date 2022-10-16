@@ -85,15 +85,17 @@ if [ $# != 0 ]; then
 else
     while read -r mpoint fstype; do
         case "$fstype" in
-            ext*|vfat)
-                printDiskUsage "$mpoint"
+            devtmpfs | squashfs)
+                : # ignored
                 ;;
             tmpfs)
                 if [ -n "$all" ]; then
                     printDiskUsage "$mpoint"
                 fi
                 ;;
-            *) : ;;
+            *)
+                printDiskUsage "$mpoint"
+                ;;
         esac
     done <<< "$(df --output=target,fstype  | tail -n +2)"
 fi
