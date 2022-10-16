@@ -80,11 +80,6 @@ show_help()
     echo ""
 }
 
-show_version()
-{
-    echo "$script_name V1.0"
-}
-
 #---------[ MAIN ]-------------------------------------------------------------
 
 initial=''
@@ -92,7 +87,7 @@ quiet=''
 inDir=''
 verbose=''
 typeset -a cmd
-args=$(parseargs -n "$script_name" -s bash -r cmd -go "i#initial,q#quiet,d#inDir,v#verbose" -- "$@")
+args=$(parseargs -n "$script_name" -s bash -r cmd -ho "i#initial,q#quiet,d#inDir,v#verbose" -- "$@")
 eval "$args" || exit 1
 
 if [ $# -lt 1 ]; then

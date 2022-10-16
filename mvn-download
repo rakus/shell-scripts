@@ -120,10 +120,6 @@ createPom()
     } >> "$POM"
 }
 
-show_version() {
-    echo "mvn-download.sh V1.0"
-}
-
 show_help() {
     echo "Usage: mvn-download.sh [-Uk] <groupId>:<artifactId>:[type:]<version>[:<scope>] ..."
     echo "   -U check for updated snapshots or releases"
@@ -137,7 +133,7 @@ show_help() {
 
 update=
 keepTmp=
-eval "$(parseargs -go 'U#update,k#keepTmp' -- "$@")" || exit 1
+eval "$(parseargs -hvo 'U#update,k#keepTmp' -- "$@")" || exit 1
 if [ $# = 0 ]; then
     show_help
     exit 1

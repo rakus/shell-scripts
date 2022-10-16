@@ -21,14 +21,9 @@ show_help()
     exit 0
 }
 
-show_version()
-{
-    echo "tsfile.sh v1.0"
-}
-
 move=""
 modtime=""
-cmd=$(parseargs -s sh -go "m:move#move,t:modtime#modtime" -- "$@")
+cmd=$(parseargs -s sh -ho "m:move#move,t:modtime#modtime" -- "$@")
 eval "$cmd" || exit 1
 
 ts=$(date "+%Y-%m-%dT%H.%M.%S")

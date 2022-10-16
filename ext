@@ -605,12 +605,6 @@ function listUnsupported
     echo >&2 "$1: Listing content not supported for this archive type."
 }
 
-
-function show_version
-{
-    echo "$script_name V1.1"
-}
-
 function show_help
 {
     echo "Extracts arbitrary archives"
@@ -657,7 +651,7 @@ fi
 
 typeset -i verbose=0
 tgtDir=
-pargs=$(parseargs -ign ERROR -o "l#mode=listMode,L#mode=topLevelList,T#mode=testPackers,d=tgtDir,D#mode=basenameDir,S#mode=singleDir,v+verbose" -- "$@")
+pargs=$(parseargs -hin ERROR -o "l#mode=listMode,L#mode=topLevelList,T#mode=testPackers,d=tgtDir,D#mode=basenameDir,S#mode=singleDir,v+verbose" -- "$@")
 #echo >&2 "========================="
 #echo >&2 "$pargs"
 #echo >&2 "========================="

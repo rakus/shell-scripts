@@ -80,12 +80,8 @@ show_help() {
     echo "  -y, --yes      Don't ask before executing commands."
 }
 
-show_version() {
-    echo "git-tidy V1.0"
-}
 
-
-aCmd=$(parseargs -n "git tidy" -go "s:staged#action=staged,a:all#action=all,hard#hard,N:no-edit#noEdit,y:yes#dont_ask" -- "$@")
+aCmd=$(parseargs -n "git tidy" -ho "s:staged#action=staged,a:all#action=all,hard#hard,N:no-edit#noEdit,y:yes#dont_ask" -- "$@")
 # shellcheck disable=SC2181
 [ $? != 0 ] && exit 7
 #echo "$aCmd"

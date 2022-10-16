@@ -37,14 +37,9 @@ show_help()
     echo ""
 }
 
-show_version()
-{
-    echo "$script_name V1.0"
-}
-
 execute=""
 force=""
-if ! eval "$(parseargs -igo "X#execute,f#force" -- "$@")"; then
+if ! eval "$(parseargs -n "$scriptname" -hio "X#execute,f#force" -- "$@")"; then
     exit 1
 fi
 

@@ -93,17 +93,12 @@ set_identity()
     execute git config --local user.email "$2"
 }
 
-show_version()
-{
-    echo "$script_name V1.0"
-}
-
-assertGitDir
-
 mode="list"
 force=""
 noop=""
-eval "$(parseargs -gn "git user" -o "l:list#mode=list,s:set#mode=set,f:force#force,n:dry-run#noop" -- "$@")" || exit 7
+eval "$(parseargs -hn "git user" -o "l:list#mode=list,s:set#mode=set,f:force#force,n:dry-run#noop" -- "$@")" || exit 7
+
+assertGitDir
 
 git_user="$(git config --local user.name)"
 git_email="$(git config --local user.email)"

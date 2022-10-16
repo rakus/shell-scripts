@@ -11,10 +11,6 @@ script_name=$(basename "$0")
 
 EXT=tar.gz
 
-show_version() {
-    echo "Version 1"
-}
-
 show_help()
 {
     echo "Tar.gz given directory"
@@ -24,7 +20,7 @@ show_help()
 }
 
 withTimestamp=""
-argCmd=$(parseargs -go "t#withTimestamp" -- "$@")
+argCmd=$(parseargs -ho "t#withTimestamp" -- "$@")
 eval "$argCmd" || exit 1
 
 [ $# -eq 0 ] && show_help

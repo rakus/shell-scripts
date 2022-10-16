@@ -50,13 +50,8 @@ show_help()
     exit 0
 }
 
-show_version()
-{
-    echo "$script_name V3"
-}
-
 update=
-cmd=$(parseargs -go "update#update" -- "$@")
+cmd=$(parseargs -ho "update#update" -- "$@")
 eval "$cmd" || exit 1
 
 if [ "$update" ]; then

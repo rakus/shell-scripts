@@ -12,22 +12,30 @@ script_name=$(basename "$0")
 show_help()
 {
     echo "Validate that the PATH environment variable is correct."
-    echo "Checks for none existing directories, duplicate entries and relative pathes"
+    echo "Checks for none existing directories, duplicate entries and relative paths"
     echo "(starting with '.')."
     echo "Finally it prints code to set the correct PATH. To fix your PATH environment"
     echo "variable use:"
-    echo "    eval \$($script_name -q)"
+    echo "    eval \$($script_name)"
+
+    echo "To validate and fix any other path-like variable its name can be given with"
+    echo "'-n':"
+    echo "    eval \$($script_name -n LD_LIBRARY_PATH)"
 
     echo ""
     echo "If the path is given on the command line, correction code is only printed if"
-    echo "also the name of this variable is given (-n/--name). To use this script for"
-    echo "validating LD_LIBRARY_PATH use:"
-    echo "    eval \$($script_name -q -n LD_LIBRARY_PATH \$LD_LIBRARY_PATH)"
+    echo "also the name of this variable is given (-n/--name)."
+    echo ""
+
+    echo "Note that the shell interprets empty path elements (leading, trailing or"
+    echo "double ':') as '.'. Empty path elements are replaced with '.' to make that"
+    echo "explicit."
+    echo ""
 
     echo ""
-    echo "Usage: ${script_name} OPTIONS [-n name path]"
+    echo "Usage: ${script_name} OPTIONS [-n name [path]]"
     echo "    -c --allow-current   allow current directory ('.')"
-    echo "    -r --allow-relative  allow relative pathes (not starting with '/')"
+    echo "    -r --allow-relative  allow relative paths (not starting with '/')"
     echo "    -q --quiet           don't print warnings"
     echo "       --help            show this help"
     echo "       --version         shows version info"
@@ -40,17 +48,11 @@ show_help()
     echo ""
 }
 
-show_version()
-{
-    echo "${script_name} V 0.1"
-}
-
-
 allowCurrent=''
 allowRelative=''
 quiet=''
 envName=''
-cmd=$(parseargs -s sh -n "${script_name}" -go "c:allow-current#allowCurrent,r:allow-relative#allowRelative,q:quiet#quiet,n:name=envName" -- "$@")
+cmd=$(parseargs -s sh -n "${script_name}" -ho "c:allow-current#allowCurrent,r:allow-relative#allowRelative,q:quiet#quiet,n:name=envName" -- "$@")
 eval "$cmd" || exit 1
 
 
@@ -58,13 +60,13 @@ checkpath=
 case $# in
     0)  # [ -n "$envName" ] && echo >&2 "WARNING: Option -n/--name ignored"
         if [ -n "$envName" ]; then
-            checkpath=$(eval "echo \$$envName")
+            checkpath="${!envName}"
         else
             checkpath="$PATH"
             envName=PATH
         fi
         ;;
-    1)  checkpath="$1"
+    1)  checkpath="$(eval echo $1)"
         ;;
     *)  echo >&2 "To many arguments"
         exit 1
@@ -82,7 +84,7 @@ IFS=:
 elements=""
 for p in $checkpath; do
     if [ -d "$p" ]; then
-        if echo "$elements" | grep ":$p:" >/dev/null; then
+        if echo "$elements" | grep -F ":$p:" >/dev/null; then
             [ -z "$quiet" ] && echo >&2 "# REMOVED: Duplicate path element: \"$p\""
         elif [ "$p" = "." ];then
             if [ -n "$allowCurrent" ]; then
@@ -103,7 +105,7 @@ for p in $checkpath; do
     elif [ -z "$p" ]; then
         if [ "$allowRelative" == "true" ]; then
             [ ! $quiet ] && echo >&2 "# OK \"$p\""
-            elements="$elements:$p:"
+            elements="$elements:.:"
         else
             [ ! $quiet ] && echo >&2 "# REMOVED: Empty entry (would work like '.')"
         fi
@@ -113,7 +115,7 @@ for p in $checkpath; do
 done
 IFS="$IFS_SAVE"
 
-elements=$(echo "$elements" | sed "s/:::*/:/g;s/^://;s/:$//")
+elements=$(echo "$elements" | sed "s/::\+/:/g;s/^://;s/:$//")
 
 if [ -z "$envName" ]; then
     [ ! $quiet ] && echo >&2 "# No variable name given (-n)"

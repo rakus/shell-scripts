@@ -25,15 +25,10 @@ show_help()
     echo ""
 }
 
-show_version()
-{
-    echo "$script_name  V1.0.0"
-}
-
 
 all=''
 target=''
-eval "$(parseargs -e show_help -go "a:all#all,t:target#target" -- "$@")"
+eval "$(parseargs -e show_help -ho "a:all#all,t:target#target" -- "$@")"
 
 if [ $# -eq 0 ]; then
     show_help

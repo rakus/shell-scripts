@@ -63,13 +63,9 @@ show_help() {
     echo "                 By default changes inside those directories are ignored."
 }
 
-show_version() {
-    echo "git-plus V1.0"
-}
-
 cdGitRoot
 
-aCmd=$(parseargs -n "git plus" -go "a:all#all,dry-run#dryRun,s:settings#settings" -- "$@")
+aCmd=$(parseargs -n "git plus" -ho "a:all#all,dry-run#dryRun,s:settings#settings" -- "$@")
 # shellcheck disable=SC2181
 [ $? != 0 ] && exit 7
 #echo "$aCmd"
