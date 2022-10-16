@@ -66,7 +66,7 @@ case $# in
             envName=PATH
         fi
         ;;
-    1)  checkpath="$(eval echo $1)"
+    1)  checkpath="$(eval echo "$1")"
         ;;
     *)  echo >&2 "To many arguments"
         exit 1
@@ -97,20 +97,20 @@ for p in $checkpath; do
                 [ -z "$quiet" ] && echo >&2 "# OK \"$p\""
                 elements="$elements:$p:"
             else
-                [ ! $quiet ] && echo >&2 "# REMOVED: Path contains relative path: \"$p\""
+                [ -z "$quiet" ] && echo >&2 "# REMOVED: Path contains relative path: \"$p\""
             fi
         else
             elements="$elements:$p:"
         fi
     elif [ -z "$p" ]; then
         if [ "$allowRelative" == "true" ]; then
-            [ ! $quiet ] && echo >&2 "# OK \"$p\""
+            [ -z "$quiet" ] && echo >&2 "# OK \"$p\""
             elements="$elements:.:"
         else
-            [ ! $quiet ] && echo >&2 "# REMOVED: Empty entry (would work like '.')"
+            [ -z "$quiet" ] && echo >&2 "# REMOVED: Empty entry (would work like '.')"
         fi
     else
-        [ ! $quiet ] && echo >&2 "# REMOVED: Path element \"$p\": Directory not found;"
+        [ -z "$quiet" ] && echo >&2 "# REMOVED: Path element \"$p\": Directory not found;"
     fi
 done
 IFS="$IFS_SAVE"
@@ -118,7 +118,7 @@ IFS="$IFS_SAVE"
 elements=$(echo "$elements" | sed "s/::\+/:/g;s/^://;s/:$//")
 
 if [ -z "$envName" ]; then
-    [ ! $quiet ] && echo >&2 "# No variable name given (-n)"
+    [ -z "$quiet" ] && echo >&2 "# No variable name given (-n)"
     echo "$elements"
     exit 0
 fi

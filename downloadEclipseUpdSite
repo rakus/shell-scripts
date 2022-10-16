@@ -7,9 +7,7 @@
 # AUTHOR: Ralf Schandl <ralf.schandl@de.ibm.com>
 #
 
-script_dir=$(cd "$(dirname $0)" 2>/dev/null; pwd)
 script_name="$(basename "$0")"
-script_file="$script_dir/$script_name"
 
 eclipse_home=/opt/eclipse/eclipse-current
 
@@ -30,15 +28,16 @@ case $zip in
 esac
 
 tmpDir=$(mktemp --tmpdir -d upd-site-XXXXX)
+# shellcheck disable=SC2064
 trap "rm -rf $tmpDir" EXIT
 
 DL_INFO="$tmpDir/download-info.txt"
 
-$eclipse_home/eclipse -application org.eclipse.equinox.p2.artifact.repository.mirrorApplication -source $1 -destination "$tmpDir"
-$eclipse_home/eclipse -application org.eclipse.equinox.p2.metadata.repository.mirrorApplication -source $1 -destination "$tmpDir"
+$eclipse_home/eclipse -application org.eclipse.equinox.p2.artifact.repository.mirrorApplication -source "$1" -destination "$tmpDir"
+$eclipse_home/eclipse -application org.eclipse.equinox.p2.metadata.repository.mirrorApplication -source "$1" -destination "$tmpDir"
 
 echo "URL:  $updateSite" > "$DL_INFO"
 echo "Date: $(date "+%Y-%m-%dT%H.%M.%S%z")" >> "$DL_INFO"
 
-(cd $tmpDir && zip -r - *) > $zip
+(cd "$tmpDir" && zip -r - ./*) > $zip
 

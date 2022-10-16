@@ -7,8 +7,7 @@
 # AUTHOR: Ralf Schandl
 #
 
-script_dir=$(cd "$(dirname $0)" 2>/dev/null; echo "$PWD")
-script_name=$(basename $0)
+script_name="$(basename "$0")"
 
 
 if [ $# -ne 1 ]; then

@@ -13,12 +13,11 @@
 # AUTHOR: Ralf Schandl
 #
 
-script_dir=$(cd "$(dirname $0)" 2>/dev/null; echo "$PWD")
-script_name=$(basename $0)
+script_name="$(basename "$0")"
 
 div=1
 milli=""
-if [ $script_name = "javadate" ]; then
+if [ "$script_name" = "javadate" ]; then
     div=1000
     milli="milli"
 fi
@@ -33,12 +32,12 @@ usage()
 
 eval "$(parseargs -s sh -o "u#showUtc" -e usage -- "$@")"
 [ $? -ne 0 ] && exit 1
-[ $showUtc ] && utc="-u"
+[ -n "$showUtc" ] && utc="-u"
 [ $# -eq 0 ] && usage
 secs=$1
 
 if  [ "$secs" -eq "$secs" ] 2>/dev/null; then
-    secs=$(($secs/$div))
+    secs=$((secs/div))
     date "+%a %F %T %Z" $utc -d @$secs
 else
 

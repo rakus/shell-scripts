@@ -56,7 +56,7 @@ typeset -a INSTALL_FAILED
 # Handles NOOP
 MVN_RUN()
 {
-    if [ $NOOP ]; then
+    if [ -n "$NOOP" ]; then
         echo "   mvn $*"
     else
         mvn "$@"

@@ -146,6 +146,7 @@ if [ "${noEdit:-}" != "true" ]; then
     editFileExitNoChange "$TMPFILE"
 fi
 
+typeset -a file_array
 readFileFiltered "$TMPFILE" file_array
 
 for ln in "${file_array[@]}"; do

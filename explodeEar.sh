@@ -15,8 +15,11 @@ explode()
 
     echo "Exploding $1"
     local fqFile="$1"
+    # shellcheck disable=SC2155
     local dirname=$(dirname "$fqFile")
+    # shellcheck disable=SC2155
     local file=$(basename "$fqFile")
+    # shellcheck disable=SC2155,SC2001
     local exploddir=$(echo "$file" | sed "s/\.[^\.]*$//")
 
     cd "$dirname" || exit 1
@@ -26,6 +29,7 @@ explode()
 	explode "$fn"
     done
 
+    # shellcheck disable=SC2164
     popd >/dev/null
 }
 
@@ -47,6 +51,7 @@ exploddir=$(echo "$file" | sed "s/\.[^\.]*$//")
 
 echo "Exploding $fqFile"
 unzip -d "$exploddir" "$fqFile" >/dev/null || exit 1
+# shellcheck disable=SC2044
 for fn in $(find $exploddir -type f  -name \*.ear -o -name \*.jar -o -name \*.war); do
     explode "$fn"
 done

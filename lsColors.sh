@@ -217,7 +217,7 @@ fi
 LC=${ft_map[lc]}
 RC=${ft_map[rc]}
 RS=${ft_map[rs]}
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034 # variable is currently not used
 CEOL=${ft_map[cl]}
 RST=${ft_map[ec]}
 unset "ft_map[lc]"

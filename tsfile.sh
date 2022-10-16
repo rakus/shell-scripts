@@ -36,7 +36,7 @@ for fn in "$@"; do
             ts=$(date -d "@${modTime}" "+%Y-%m-%dT%H.%M.%S")
         fi
         echo "$fn  ->  $fn.$ts"
-        if [ $move ]; then
+        if [ -n "$move" ]; then
             mv "$fn" "$fn.$ts"
         else
             cp -r "$fn" "$fn.$ts"

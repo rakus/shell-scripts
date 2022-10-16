@@ -36,6 +36,8 @@ printDiskUsage()
 
     percent="${percent%\%}"
 
+    typeset -i used_bar free_bar
+
     (( used_bar= (percent * (term_cols - 3))/100 ))
     (( free_bar = term_cols - used_bar - 3 ))
 

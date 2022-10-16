@@ -39,7 +39,7 @@ show_help()
 
 execute=""
 force=""
-if ! eval "$(parseargs -n "$scriptname" -hio "X#execute,f#force" -- "$@")"; then
+if ! eval "$(parseargs -n "$script_name" -hio "X#execute,f#force" -- "$@")"; then
     exit 1
 fi
 
