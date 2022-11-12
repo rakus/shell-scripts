@@ -271,14 +271,14 @@ contained()
 }
 
 #
-# Checks if the given parameter is a function or program.
-# Uses prgOk and prgError as caches, so that each name is only checked once.
+# Checks for the needed programs.
+# This functions use the command strings and extracts the needed programs from
+# it. Then check if the program or function is available.
+# No checks about version or capabilities are done.
 #
-typeset -a prgOk=()
-typeset -a prgError=()
-function checkPrg
+function checkPrograms
 {
-    typeset prg=$1
+    echo "Checking programs ..."
 
     typeset OK_SUFFIX
     typeset ERROR_SUFFIX
@@ -293,35 +293,10 @@ function checkPrg
         ERROR_SUFFIX="\tNot Found"
     fi
 
-    if contained "$prg" "${prgOk[@]}"; then
-        return 0
-    elif contained "$prg" "${prgError[@]}"; then
-        return 1
-    fi
-    if ! type "$c" >/dev/null 2>&1; then
-        prgError+=( $prg )
-        echo -e "$prg$ERROR_SUFFIX"
-        return 1
-    else
-        prgOk+=( $prg )
-        echo -e "$prg$OK_SUFFIX"
-        return 0
-    fi
-}
-
-#
-# Checks for the needed programs.
-# This functions use the unpack command string and extracts the needed
-# programs from it. Then it uses the function 'checkPrg' to check if they are
-# installed.
-# No checks about version or capabilities are done.
-#
-function checkInstalledPackers
-{
-    echo "Checking programms ..."
     typeset -a supported
     typeset -a unsupported
     typeset -a sOptionUnsupported
+    typeset -A programs
     for ft in "${!expandCmd[@]}"; do
 
         # unpack command
@@ -351,7 +326,10 @@ function checkInstalledPackers
         oldIFS="$IFS"
         IFS=' '
         for c in $cmd; do
-            if ! checkPrg "$c"; then
+            if command -v "$c" >/dev/null 2>&1; then
+                programs[$c]="$OK_SUFFIX"
+            else
+                programs[$c]="$ERROR_SUFFIX"
                 missingCmd+=( "$c" )
             fi
         done
@@ -368,6 +346,10 @@ function checkInstalledPackers
             IFS=$'\n' missingCmd=($(sort -u <<<"${missingCmd[*]}"))
             unsupported+=( "$ft (Missing: ${missingCmd[@]//$'\n'})" )
         fi
+    done
+
+    for key in $(echo "${!programs[*]}" | sort); do
+        echo -e "$key" "${programs[$key]}"
     done
 
     echo ""
@@ -630,7 +612,7 @@ function show_help
     echo ""
     echo " -L        List only the root directory of the archive."
     echo ""
-    echo " -T        Test for needed programms. This only tests for existence of the"
+    echo " -T        Test for needed programs. This only tests for existence of the"
     echo "           programs not the version or capabilities."
     echo ""
     echo " -v        Verbose. Use multiple times to increase verbosity."
@@ -651,14 +633,14 @@ fi
 
 typeset -i verbose=0
 tgtDir=
-pargs=$(parseargs -hin ERROR -o "l#mode=listMode,L#mode=topLevelList,T#mode=testPackers,d=tgtDir,D#mode=basenameDir,S#mode=singleDir,v+verbose" -- "$@")
+pargs=$(parseargs -hin ERROR -o "l#mode=listMode,L#mode=topLevelList,T#mode=testPrograms,d=tgtDir,D#mode=basenameDir,S#mode=singleDir,v+verbose" -- "$@")
 #echo >&2 "========================="
 #echo >&2 "$pargs"
 #echo >&2 "========================="
 eval "$pargs" || exit 1
 
-if [ "$mode" = "testPackers" ]; then
-    checkInstalledPackers
+if [ "$mode" = "testPrograms" ]; then
+    checkPrograms
     exit 0
 fi
 
