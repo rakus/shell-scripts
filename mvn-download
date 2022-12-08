@@ -133,7 +133,7 @@ show_help() {
 
 update=
 keepTmp=
-eval "$(parseargs -hvo 'U#update,k#keepTmp' -- "$@")" || exit 1
+eval "$(parseargs -ho 'U#update,k#keepTmp' -- "$@")" || exit 1
 if [ $# = 0 ]; then
     show_help
     exit 1
@@ -171,7 +171,7 @@ zip -qr "$zipFile" ./*
 cd "$runDir" || exit 1
 
 echo ""
-if [ -m "$keepTmp" ]; then
+if [ -n "$keepTmp" ]; then
     echo "Keeping temp directory $(basename "$tmpDir")"
 else
     echo "Cleaning up ..."
