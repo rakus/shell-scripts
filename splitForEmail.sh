@@ -75,28 +75,29 @@ case $# in
         ;;
 esac
 
+tgtFile="$(basename "$file")"
 
 if [ "$ext" = "xxd" ]; then
     echo "Creating hexdump ..."
-    if ! xxd "$file" "$file.xxd"; then
-        error_exit "xxd \"$file\" \"$file.xxd\""
+    if ! xxd "$file" "$tgtFile.xxd"; then
+        error_exit "xxd \"$file\" \"$tgtFile.xxd\""
     fi
 elif [ "$ext" = "b64" ]; then
     echo "Creating base64 ..."
-    if ! base64 -w0 "$file" > "$file.b64"; then
-        error_exit "base64 -w0 \"$file\" > \"$file.b64\""
+    if ! base64 -w0 "$file" > "$tgtFile.b64"; then
+        error_exit "base64 -w0 \"$file\" > \"$tgtFile.b64\""
     fi
 else
     echo >&2 "Unknown extension: $ext"
 fi
 
 echo "Splitting ..."
-if ! split -C "$splitsize" -a3 "$file.$ext" "$file.$ext."; then
-    error_exit "split -C $splitsize -a3 \"$file.$ext\" \"$file.$ext.\""
+if ! split -C "$splitsize" -a3 "$tgtFile.$ext" "$tgtFile.$ext."; then
+    error_exit "split -C $splitsize -a3 \"$tgtFile.$ext\" \"$tgtFile.$ext.\""
 fi
 
 echo "Zipping splits ..."
-for fn in "$file.$ext.a"??; do
+for fn in "$tgtFile.$ext.a"??; do
     if ! zip "$fn.zip" "$fn"; then
         error_exit "zip \"$fn.zip\" \"$fn\""
     fi
@@ -104,21 +105,21 @@ for fn in "$file.$ext.a"??; do
 done
 
 if [ "$ext" = "xxd" ]; then
-    undump_cmd="xxd -r $file.xxd $file"
+    undump_cmd="xxd -r $tgtFile.xxd $tgtFile"
 elif [ "$ext" = "b64" ]; then
-    undump_cmd="base64 -d $file.b64 > $file"
+    undump_cmd="base64 -d $tgtFile.b64 > $tgtFile"
 fi
 
 echo "Creating expand batch ..."
 cat > expand.bat <<EOF
 
-for /f "tokens=*" %%F in ('dir /b /on "$file.$ext.a??.zip"') do (
+for /f "tokens=*" %%F in ('dir /b /on "$tgtFile.$ext.a??.zip"') do (
     unzip %%F
 )
 
-del "$file.$ext"
-for /f "tokens=*" %%F in ('dir /b /on "$file.$ext.a??"') do (
-    type %%F >> $file.$ext
+del "$tgtFile.$ext"
+for /f "tokens=*" %%F in ('dir /b /on "$tgtFile.$ext.a??"') do (
+    type %%F >> $tgtFile.$ext
 )
 
 $undump_cmd
@@ -129,12 +130,12 @@ EOF
 echo "Creating expand shell script ..."
 cat > expand.sh <<EOF
 #!/bin/sh
-for fn in $file.$ext.a??.zip; do
+for fn in $tgtFile.$ext.a??.zip; do
     unzip \$fn
 done
-rm -f "$file.$ext"
-for fn in $file.$ext.a??; do
-    cat "\$fn" >> "$file.$ext"
+rm -f "$tgtFile.$ext"
+for fn in $tgtFile.$ext.a??; do
+    cat "\$fn" >> "$tgtFile.$ext"
 done
 $undump_cmd
 EOF
