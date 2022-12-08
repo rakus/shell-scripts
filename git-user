@@ -96,7 +96,7 @@ set_identity()
 mode="list"
 force=""
 noop=""
-eval "$(parseargs -hn "git user" -o "l:list#mode=list,s:set#mode=set,f:force#force,n:dry-run#noop" -- "$@")" || exit 7
+eval "$(parseargs -hn "git user" -o "l:list#mode=list,s:set#mode=set,d:detect#mode=detect,f:force#force,n:dry-run#noop" -- "$@")" || exit 7
 
 assertGitDir
 
@@ -107,6 +107,11 @@ if [ "$mode" = "list" ]; then
     echo "User:   $git_user"
     echo "Email:  $git_email"
     exit 0
+elif [ "$mode" = "detect" ]; then
+    last_author="$(git log --pretty="format:%an|%ae"  | head -n1)"
+    git_user="${last_author%%|*}"
+    git_email="${last_author##*|}"
+    set_identity "$git_user" "$git_email"
 elif [ "$mode" = "set" ]; then
     if [ -n "$git_user" ] && [ -n "$git_email" ]; then
         if [ -z "$force" ]; then
