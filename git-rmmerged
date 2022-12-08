@@ -1,0 +1,126 @@
+#!/usr/bin/bash
+#
+# FILE: git-rmmerged
+#
+# ABSTRACT: Deletes branches that were merged to current or given branch
+#
+# Don't worry, it asks before actually doing it.
+#
+# AUTHOR: Ralf Schandl <ralf.schandl@de.ibm.com>
+#
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+
+# shellcheck source=./git.shlib
+. "$script_dir/git.shlib"
+
+assertGitDir
+
+del_merged()
+{
+    local branch="$1"
+
+    mapfile -t merged_branches < <(git branch --merged "$branch" | sed 's/^[ *]*//' | grep -v "master\|develop" | grep -v "^$branch")
+
+    if [ ${#merged_branches[@]} = 0 ]; then
+        echo >&2 "No merged branches found - nothing to do"
+        exit
+    fi
+
+    TMPFILE=$(mktemp -t GIT_RMMERGED.XXXX)
+    # shellcheck disable=SC2064
+    trap "rm -f '$TMPFILE'" EXIT
+
+    {
+        echo "# Local branches already merged to $branch"
+        echo "# Quit without saving to cancel operation."
+        echo "# Delete lines with branches YOU WANT TO KEEP."
+    } >"$TMPFILE"
+
+    printf '%s\n'  "${merged_branches[@]}" >> "$TMPFILE"
+
+    typeset -a selected_branches
+    editFileExitNoChange "$TMPFILE" "selected_branches"
+    if [ ${#selected_branches[@]} = 0 ]; then
+        echo "Nothing to do - Bye"
+        exit 0
+    fi
+
+    git branch -d  "${selected_branches[@]}"
+}
+
+
+del_merged_remote()
+{
+    local branch="$1"
+
+    mapfile -t merged_branches < <(git branch -r --merged "origin/$branch" | sed 's/^[ *]*//' | grep -iv 'master\|develop\|HEAD\|release/' | grep -v "/$branch")
+
+    if [ ${#merged_branches[@]} = 0 ]; then
+        echo >&2 "No merged branches found - nothing to do"
+        exit
+    fi
+
+    TMPFILE=$(mktemp -t GIT_RMMERGED.XXXX)
+    # shellcheck disable=SC2064
+    trap "rm -f '$TMPFILE'" EXIT
+
+    {
+        echo "# Remote branches already merged to origin/$branch"
+        echo "# Quit without saving to cancel operation."
+        echo "# Delete lines with branches YOU WANT TO KEEP."
+    } > "$TMPFILE"
+
+    typeset -a selected_branches
+    printf '%s\n'  "${merged_branches[@]}" >> "$TMPFILE"
+
+    editFileExitNoChange "$TMPFILE" "selected_branches"
+    if [ ${#selected_branches[@]} = 0 ]; then
+        echo "Nothing to do - Bye"
+        exit 0
+    fi
+
+    for br in   "${selected_branches[@]}"; do
+        plain="${br#origin/}"
+        echo git push -d  origin "$plain"
+    done
+    echo
+    echo "Run 'git fetch --prune' to delete local references to deleted remote branches."
+    echo
+}
+
+
+remote=
+while getopts "R" o "$@"; do
+    case $o in
+        R) remote="true"
+            ;;
+        *)
+            echo "Usage: git rmmerged [-R] [target-branch]"
+            echo "    -R  check remote branches"
+            echo "Delete branches that where already merged to the current branch or the"
+            echo "branch <target-branch>."
+            exit 1
+            ;;
+    esac
+done
+shift $((OPTIND-1))
+
+case $# in
+    0)
+        tgt_branch="$(git rev-parse --abbrev-ref HEAD)"
+        ;;
+    1)
+        tgt_branch="$1"
+        ;;
+    *)
+        echo >&2 "ERROR: only one branch name allowed"
+        ;;
+esac
+
+if [ -z "$remote" ]; then
+    del_merged "$tgt_branch"
+else
+    del_merged_remote "$tgt_branch"
+fi
+
