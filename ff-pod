@@ -1,0 +1,191 @@
+#!/bin/bash
+#
+# FILE: ff-pod.sh
+#
+# ABSTRACT:
+#
+# AUTHOR: Ralf Schandl
+#
+# CREATED: 2022-12-17
+#
+
+script_name="$(basename "$0")"
+
+typeset -A USER_PREF
+
+USER_PREF["browser.startup.homepage_override.mstone"]='ignore'
+USER_PREF["browser.newtabpage.activity-stream.feeds.section.highlights"]='false'
+USER_PREF["browser.newtabpage.activity-stream.feeds.snippets"]='false'
+USER_PREF["browser.newtabpage.activity-stream.feeds.topsites"]='false'
+USER_PREF["browser.newtabpage.activity-stream.showSearch"]='false'
+USER_PREF["browser.startup.homepage"]='"about:blank"'
+USER_PREF["media.autoplay.default"]='5'
+USER_PREF["network.cookie.lifetimePolicy"]='2'
+USER_PREF["network.predictor.cleaned-up"]='true'
+USER_PREF["permissions.default.camera"]='2'
+USER_PREF["permissions.default.desktop-notification"]='2'
+USER_PREF["permissions.default.geo"]='2'
+USER_PREF["permissions.default.microphone"]='2'
+
+USERNAME="$(id -un)"
+UUID=$(id -u)
+GUID=$(id -g)
+
+FF_IMAGE="firefox"
+BASE_IMAGE="registry.fedoraproject.org/fedora-minimal:37"
+
+FF_PROFILE="pod"
+FF_PROFILE_PATH="$HOME/.mozilla/firefox/ff.$FF_PROFILE"
+
+show_help()
+{
+    #         ....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+    echo >&2 "USAGE: $script_name update"
+    echo >&2 "    Creates (or recreates) the image '$FF_IMAGE' to run firefox in a container."
+    echo >&2 "    This will start firefox with the local profile '$FF_PROFILE' so you can"
+    echo >&2 "    configure the profile to your liking. Like installing add-ons etc."
+    echo >&2 "    Then the container image is created and the just configured profile is"
+    echo >&2 "    copied to it."
+    echo >&2 "    Rerun this command to update firefox or add-ons."
+    echo >&2 ""
+    echo >&2 "USAGE: $script_name inspect"
+    echo >&2 "    Opens a shell on a container started from the image '$FF_IMAGE'."
+    echo >&2 ""
+    echo >&2 "USAGE: $script_name remove"
+    echo >&2 "    Removes the image '$FF_IMAGE' from the registry."
+    echo >&2 "    Note: The locally created firefox profile '$FF_PROFILE' is not removed."
+    echo >&2 ""
+    echo >&2 "USAGE: $script_name"
+    echo >&2 "    Starts firefox in a container using the image created with"
+    echo >&2 "    '$script_name update'"
+    echo >&2 ""
+}
+
+check_for_image()
+{
+    if podman image exists "$FF_IMAGE"; then
+        return
+    fi
+    echo >&2 "The image 'firefox' does not exist - it has to be created first."
+    echo >&2 "Use '$script_name update'."
+    echo >&2 ""
+    show_help
+    exit 1
+}
+
+create_profile()
+{
+    local profile="$1"
+    local profile_path="$2"
+    echo "Creating profile $profile ..."
+    /usr/bin/firefox --no-remote --CreateProfile "$profile $profile_path"
+
+    for k in "${!USER_PREF[@]}"; do
+        printf 'user_pref(\"%s\", %s);' "$k" "${USER_PREF[$k]}" >> "$profile_path/user.js"
+    done
+}
+
+build_image()
+{
+    if podman image exists "$FF_IMAGE"; then
+        cntr="$(buildah from "$FF_IMAGE")"
+        buildah run --user "$USERNAME:$USERNAME" "$cntr" -- rm -rf "$FF_PROFILE_PATH"
+
+        buildah run "$cntr" -- microdnf -y upgrade \
+            --refresh \
+            --best \
+            --nodocs \
+            --noplugins \
+            --setopt=install_weak_deps=0
+
+    else
+        cntr="$(buildah from "$BASE_IMAGE")"
+        buildah run "$cntr" -- microdnf -y upgrade \
+            --refresh \
+            --best \
+            --nodocs \
+            --noplugins \
+            --setopt=install_weak_deps=0
+
+        buildah run "$cntr" -- microdnf -y install firefox
+
+        buildah run "$cntr" -- /sbin/groupadd -g "$GUID" "$USERNAME"
+        buildah run "$cntr" -- /sbin/useradd -u "$UUID" -g "$GUID" -G audio,video -m "$USERNAME"
+
+    fi
+
+    buildah run "$cntr" -- microdnf clean all
+
+    buildah run --user "$USERNAME:$USERNAME" "$cntr" -- mkdir -p "$FF_PROFILE_PATH"
+    buildah copy --chown "$USERNAME:$USERNAME" "$cntr" "$FF_PROFILE_PATH" "$FF_PROFILE_PATH"
+    buildah run "$cntr" -- rm -f "$FF_PROFILE_PATH/lock"  "$FF_PROFILE_PATH/.parentlock"
+    buildah run "$cntr" -- /bin/sh -c "chown -R rks:rks /home/$USERNAME"
+    buildah config --user "$USERNAME" --entrypoint '["firefox", "-profile", "'"$FF_PROFILE_PATH"'"]' --cmd '' "$cntr"
+    buildah commit --rm  "$cntr" "$FF_IMAGE"
+}
+
+
+
+update()
+{
+    if [ ! -d "$FF_PROFILE_PATH" ]; then
+        create_profile "$FF_PROFILE" "$FF_PROFILE_PATH"
+    fi
+
+    firefox -P "$FF_PROFILE" --no-remote
+
+    build_image
+}
+
+inspect_image()
+{
+    podman run -ti --rm --entrypoint /bin/sh $FF_IMAGE
+}
+
+run_pod()
+{
+    podman run \
+        --userns=keep-id \
+        --security-opt label=type:container_runtime_t \
+        --net=host -it --rm \
+        -v /tmp/.X11-unix:/tmp/.X11-unix \
+        -v /dev/dri:/dev/dri \
+        -v "$HOME/.Xauthority:/home/$USERNAME/.Xauthority:Z" \
+        --device /dev/video0 \
+        -e DISPLAY \
+        -v "$HOME/.config/pulse/cookie:/home/$USERNAME/.config/pulse/cookie" \
+        -v /etc/machine-id:/etc/machine-id \
+        -v "/run/user/${UUID}/pulse:/run/user/${UUID}/pulse" \
+        -v /var/lib/dbus:/var/lib/dbus \
+        -v "$HOME/Downloads:/home/$USERNAME/Downloads" \
+        --device /dev/snd \
+        -e "PULSE_SERVER=unix:${XDG_RUNTIME_DIR}/pulse/native" \
+        -v "${XDG_RUNTIME_DIR}/pulse/native:${XDG_RUNTIME_DIR}/pulse/native" \
+        ${FF_IMAGE}
+}
+
+
+#---------[ MAIN ]-------------------------------------------------------------
+
+case "${1:-}" in
+    "update") update ;;
+    "inspect")
+        check_for_image
+        inspect_image
+        ;;
+    "remove")
+        podman image rm "$FF_IMAGE"
+        ;;
+    "")
+        check_for_image
+        run_pod
+        ;;
+    '--help') show_help ;;
+    *)
+        echo >&2 "Unknown command: '$1'"
+        show_help
+        exit 1
+        ;;
+esac
+
+
