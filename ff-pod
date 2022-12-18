@@ -1,8 +1,11 @@
 #!/bin/bash
 #
-# FILE: ff-pod.sh
+# FILE: ff-pod
 #
-# ABSTRACT:
+# ABSTRACT: Configure and run Firefox in a Pod
+#
+# Script to create, remove or run a containerized Firefox.
+# See `ff-pod --help`
 #
 # AUTHOR: Ralf Schandl
 #
@@ -91,7 +94,7 @@ build_image()
         cntr="$(buildah from "$FF_IMAGE")"
         buildah run --user "$USERNAME:$USERNAME" "$cntr" -- rm -rf "$FF_PROFILE_PATH"
 
-        buildah run "$cntr" -- microdnf -y upgrade \
+        buildah run --user root "$cntr" -- microdnf -y upgrade \
             --refresh \
             --best \
             --nodocs \
@@ -100,21 +103,21 @@ build_image()
 
     else
         cntr="$(buildah from "$BASE_IMAGE")"
-        buildah run "$cntr" -- microdnf -y upgrade \
+        buildah run --user root "$cntr" -- microdnf -y upgrade \
             --refresh \
             --best \
             --nodocs \
             --noplugins \
             --setopt=install_weak_deps=0
 
-        buildah run "$cntr" -- microdnf -y install firefox
+        buildah run --user root "$cntr" -- microdnf -y install firefox
 
-        buildah run "$cntr" -- /sbin/groupadd -g "$GUID" "$USERNAME"
-        buildah run "$cntr" -- /sbin/useradd -u "$UUID" -g "$GUID" -G audio,video -m "$USERNAME"
+        buildah run --user root "$cntr" -- /sbin/groupadd -g "$GUID" "$USERNAME"
+        buildah run --user root "$cntr" -- /sbin/useradd -u "$UUID" -g "$GUID" -G audio,video -m "$USERNAME"
 
     fi
 
-    buildah run "$cntr" -- microdnf clean all
+    buildah run --user root "$cntr" -- microdnf clean all
 
     buildah run --user "$USERNAME:$USERNAME" "$cntr" -- mkdir -p "$FF_PROFILE_PATH"
     buildah copy --chown "$USERNAME:$USERNAME" "$cntr" "$FF_PROFILE_PATH" "$FF_PROFILE_PATH"
