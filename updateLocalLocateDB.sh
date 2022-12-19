@@ -8,6 +8,10 @@
 #     # m h  dom mon dow   command
 #     13 * * * * ${HOME}/bin/updateLocalLocateDB.sh
 #
+# Use the following alias to query the local locatedb:
+#
+#     alias llocate='locate -d "$HOME/.locatedb"'
+#
 # AUTHOR: Ralf Schandl
 #
 
