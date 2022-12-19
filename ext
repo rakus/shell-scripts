@@ -5,7 +5,7 @@
 # ABSTRACT: Extracts arbitrary archives
 #
 # Detects the file type of the archive from the output of the file command and
-# then used the appropriate program(s) to extract the files from the archive.
+# then uses the appropriate program(s) to extract the files from the archive.
 # If the appropriate program is not installed, extract will fail.
 #
 # This script is for simple extract and listing only; if you need more control
@@ -260,17 +260,6 @@ function error
 }
 
 #
-# Check whether the first argument is somewhere in the following.
-# Used like: contained x.txt "${file[@]}"
-#
-contained()
-{
-    local e
-    for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
-    return 1
-}
-
-#
 # Checks for the needed programs.
 # This functions use the command strings and extracts the needed programs from
 # it. Then check if the program or function is available.
@@ -344,7 +333,7 @@ function checkPrograms
         else
             # shellcheck disable=SC2207
             IFS=$'\n' missingCmd=($(sort -u <<<"${missingCmd[*]}"))
-            unsupported+=( "$ft (Missing: ${missingCmd[@]//$'\n'})" )
+            unsupported+=( "$ft (Missing:$(printf " %s" "${missingCmd[@]}"))" )
         fi
     done
 
@@ -435,7 +424,9 @@ function getCmd
     #typeset fTyp=$(echo "$ftTxt" | cut '-d;' -f1)
     #typeset fCompression=$(echo "$ftTxt" | grep compressed-encoding=|sed "s/^.* compressed-encoding=//"| cut '-d;' -f1)
 
+    # shellcheck disable=SC2155
     typeset fTyp="$(file -bz --mime-type "$fqName")"
+    # shellcheck disable=SC2155
     typeset fCompression="$(file -b --mime-type "$fqName")"
 
     #
