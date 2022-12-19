@@ -97,7 +97,7 @@ cdGitRoot()
 # file, exit with code 1
 #
 # $1: The file to edit.
-# $2: array name to load the file (excluding comments, empty lines)
+# $2: optional: array name to load the file (excluding comments, empty lines)
 #
 editFileExitNoChange()
 {
@@ -108,7 +108,12 @@ editFileExitNoChange()
     oldTS=$(stat -c "%Y" "$tmpFile")
 
     # edit selection
-    ${THE_EDITOR} "$tmpFile"
+    if ! ${THE_EDITOR} "$tmpFile"; then
+	echo ""
+	echo "Editor exited with error code -- no action"
+	echo ""
+	exit 1
+    fi
 
     # If not saved (so timestamp did not change) do nothing
     newTS=$(stat -c "%Y" "$tmpFile")
