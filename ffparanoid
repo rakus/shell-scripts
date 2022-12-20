@@ -40,6 +40,21 @@ fi
 # Name Profile to copy to the new profile. Must exist in $ff_dir/profiles.ini
 src_profile="Paranoid"
 
+
+read -r -d '' WARNING_HTML << EOF
+<html>
+    <head>
+        <title>DON'T USE FOR NORMAL SURFING</title>
+    </head>
+    <body style="text-align:center">
+	<p style="color:red;font-size:5vw">DON'T USE THIS INSTANCE OF FIREFOX FOR NORMAL SURFING!</p>
+	<p>It is just for configuring the profile for the paranoid Firefox.</p>
+	<p>Delete cookies and history before closing.</p>
+    </body>
+</html>
+EOF
+
+
 show_help()
 {
     echo "Usage:"
@@ -55,7 +70,15 @@ cmd=$(parseargs -ho "update#update" -- "$@")
 eval "$cmd" || exit 1
 
 if [ "$update" ]; then
-    firefox -P $src_profile --no-remote "$@"
+
+    tmp_file="$(mktemp --tmpdir ffparanoid.update.XXXXX.html)"
+
+    echo "$WARNING_HTML" > "$tmp_file"
+
+    firefox -P $src_profile --no-remote "$tmp_file"
+
+    rm -f "$tmp_file"
+
     exit 0
 fi
 
