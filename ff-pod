@@ -40,11 +40,26 @@ BASE_IMAGE="registry.fedoraproject.org/fedora-minimal:37"
 FF_PROFILE="pod"
 FF_PROFILE_PATH="$HOME/.mozilla/firefox/ff.$FF_PROFILE"
 
+
+read -r -d '' WARNING_HTML << EOF
+<html>
+    <head>
+        <title>DON'T USE FOR NORMAL SURFING</title>
+    </head>
+    <body style="text-align:center">
+	<p style="color:red;font-size:5vw">DON'T USE THIS INSTANCE OF FIREFOX FOR NORMAL SURFING!</p>
+	<p>It is just for configuring the profile for the containerized Firefox.</p>
+	<p>Delete cookies and history before closing.</p>
+    </body>
+</html>
+EOF
+
+
 show_help()
 {
     #         ....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
     echo >&2 "USAGE: $script_name update"
-    echo >&2 "    Creates (or recreates) the image '$FF_IMAGE' to run firefox in a container."
+    echo >&2 "    Updates (or creates) the image '$FF_IMAGE' to run firefox in a container."
     echo >&2 "    This will start firefox with the local profile '$FF_PROFILE' so you can"
     echo >&2 "    configure the profile to your liking. Like installing add-ons etc."
     echo >&2 "    Then the container image is created and the just configured profile is"
@@ -69,7 +84,7 @@ check_for_image()
     if podman image exists "$FF_IMAGE"; then
         return
     fi
-    echo >&2 "The image 'firefox' does not exist - it has to be created first."
+    echo >&2 "The image '$FF_IMAGE' does not exist - it has to be created first."
     echo >&2 "Use '$script_name update'."
     echo >&2 ""
     show_help
@@ -135,7 +150,13 @@ update()
         create_profile "$FF_PROFILE" "$FF_PROFILE_PATH"
     fi
 
-    firefox -P "$FF_PROFILE" --no-remote
+    tmp_file="$(mktemp --tmpdir ff.pod.config.XXXXX.html)"
+
+    echo "$WARNING_HTML" > "$tmp_file"
+
+    firefox -P "$FF_PROFILE" --no-remote "$tmp_file"
+
+    rm -f "$tmp_file"
 
     build_image
 }
