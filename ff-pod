@@ -34,7 +34,7 @@ USERNAME="$(id -un)"
 UUID=$(id -u)
 GUID=$(id -g)
 
-FF_IMAGE="firefox"
+FF_IMAGE="firefox.$USERNAME"
 BASE_IMAGE="registry.fedoraproject.org/fedora-minimal:37"
 
 FF_PROFILE="pod"
@@ -105,6 +105,11 @@ create_profile()
 
 build_image()
 {
+    if ! command -v buildah >/dev/null; then
+        echo >&2 "ERROR: Command 'buildah' not available -- can't continue"
+        exit 1
+    fi
+
     if podman image exists "$FF_IMAGE"; then
         cntr="$(buildah from "$FF_IMAGE")"
         buildah run --user "$USERNAME:$USERNAME" "$cntr" -- rm -rf "$FF_PROFILE_PATH"
@@ -125,7 +130,11 @@ build_image()
             --noplugins \
             --setopt=install_weak_deps=0
 
-        buildah run --user root "$cntr" -- microdnf -y install firefox
+        buildah run --user root "$cntr" -- microdnf -y install \
+            --best \
+            --nodocs \
+            --noplugins \
+            firefox
 
         buildah run --user root "$cntr" -- /sbin/groupadd -g "$GUID" "$USERNAME"
         buildah run --user root "$cntr" -- /sbin/useradd -u "$UUID" -g "$GUID" -G audio,video -m "$USERNAME"
@@ -141,8 +150,6 @@ build_image()
     buildah config --user "$USERNAME" --entrypoint '["firefox", "-profile", "'"$FF_PROFILE_PATH"'"]' --cmd '' "$cntr"
     buildah commit --rm  "$cntr" "$FF_IMAGE"
 }
-
-
 
 update()
 {
@@ -163,29 +170,45 @@ update()
 
 inspect_image()
 {
-    podman run -ti --rm --entrypoint /bin/sh $FF_IMAGE
+    podman run -ti --rm --entrypoint /bin/sh "$FF_IMAGE"
 }
 
 run_pod()
 {
-    podman run \
-        --userns=keep-id \
-        --security-opt label=type:container_runtime_t \
-        --net=host -it --rm \
-        -v /tmp/.X11-unix:/tmp/.X11-unix \
-        -v /dev/dri:/dev/dri \
-        -v "$HOME/.Xauthority:/home/$USERNAME/.Xauthority:Z" \
-        --device /dev/video0 \
-        -e DISPLAY \
-        -v "$HOME/.config/pulse/cookie:/home/$USERNAME/.config/pulse/cookie" \
-        -v /etc/machine-id:/etc/machine-id \
-        -v "/run/user/${UUID}/pulse:/run/user/${UUID}/pulse" \
-        -v /var/lib/dbus:/var/lib/dbus \
-        -v "$HOME/Downloads:/home/$USERNAME/Downloads" \
-        --device /dev/snd \
-        -e "PULSE_SERVER=unix:${XDG_RUNTIME_DIR}/pulse/native" \
-        -v "${XDG_RUNTIME_DIR}/pulse/native:${XDG_RUNTIME_DIR}/pulse/native" \
-        ${FF_IMAGE}
+
+    typeset -a args
+    # map user-id from host to container
+    args+=( "--userns=keep-id" )
+
+    # use the hosts network
+    args+=( "--network" "host" )
+
+    # related to se-linux and container. TODO: check
+    args+=( "--security-opt" "label=type:container_runtime_t" )
+
+    # The DISPLAY environment variable
+    args+=( "--env" "DISPLAY" )
+
+    # access to video and sound
+    #args+=( "--device" "/dev/video0" )
+    #args+=( "--device" "/dev/snd" )
+    #args+=( "--volume" "/dev/dri:/dev/dri" )
+
+    #args+=( "--volume" "/tmp/.X11-unix:/tmp/.X11-unix" )
+    #args+=( "--volume" "$HOME/.Xauthority:/home/$USERNAME/.Xauthority:Z" )
+
+    #args+=( "--volume" "/etc/machine-id:/etc/machine-id" )
+    #args+=( "--volume" "/var/lib/dbus:/var/lib/dbus" )
+
+    #args+=( "--volume" "$HOME/.config/pulse/cookie:/home/$USERNAME/.config/pulse/cookie" )
+    #args+=( "--volume" "/run/user/${UUID}/pulse:/run/user/${UUID}/pulse" )
+    args+=( "--env" "PULSE_SERVER=unix:${XDG_RUNTIME_DIR}/pulse/native" )
+    args+=( "--volume" "${XDG_RUNTIME_DIR}/pulse/native:${XDG_RUNTIME_DIR}/pulse/native" )
+
+    # The Downloads directory
+    args+=( "--volume" "$HOME/Downloads:/home/$USERNAME/Downloads" )
+
+    podman run -i --rm "${args[@]}" "$FF_IMAGE"
 }
 
 
