@@ -32,6 +32,7 @@ USER_PREF["permissions.default.microphone"]='2'
 
 USERNAME="$(id -un)"
 UUID=$(id -u)
+GROUPNAME="$(id -gn)"
 GUID=$(id -g)
 
 FF_IMAGE="firefox.$USERNAME"
@@ -112,7 +113,7 @@ build_image()
 
     if podman image exists "$FF_IMAGE"; then
         cntr="$(buildah from "$FF_IMAGE")"
-        buildah run --user "$USERNAME:$USERNAME" "$cntr" -- rm -rf "$FF_PROFILE_PATH"
+        buildah run --user "$USERNAME:$GROUPNAME" "$cntr" -- rm -rf "$FF_PROFILE_PATH"
 
         buildah run --user root "$cntr" -- microdnf -y upgrade \
             --refresh \
@@ -130,24 +131,32 @@ build_image()
             --noplugins \
             --setopt=install_weak_deps=0
 
+        # Install firefox and liberation fonts
         buildah run --user root "$cntr" -- microdnf -y install \
             --best \
             --nodocs \
             --noplugins \
-            firefox
+            firefox liberation-fonts
 
-        buildah run --user root "$cntr" -- /sbin/groupadd -g "$GUID" "$USERNAME"
+        # add a group with same name and id as the primary group as the current user
+        buildah run --user root "$cntr" -- /sbin/groupadd -g "$GUID" "$GROUPNAME"
+        # add a user with name of the user and same id as on host
         buildah run --user root "$cntr" -- /sbin/useradd -u "$UUID" -g "$GUID" -G audio,video -m "$USERNAME"
 
     fi
 
     buildah run --user root "$cntr" -- microdnf clean all
 
-    buildah run --user "$USERNAME:$USERNAME" "$cntr" -- mkdir -p "$FF_PROFILE_PATH"
-    buildah copy --chown "$USERNAME:$USERNAME" "$cntr" "$FF_PROFILE_PATH" "$FF_PROFILE_PATH"
+    # copy configured firefox profile 'pod' to container
+    buildah run --user "$USERNAME:$GROUPNAME" "$cntr" -- mkdir -p "$FF_PROFILE_PATH"
+    buildah copy --chown "$USERNAME:$GROUPNAME" "$cntr" "$FF_PROFILE_PATH" "$FF_PROFILE_PATH"
+    # remove lock files to prevent "Firefox is already running but is not responding"
     buildah run "$cntr" -- rm -f "$FF_PROFILE_PATH/lock"  "$FF_PROFILE_PATH/.parentlock"
-    buildah run "$cntr" -- /bin/sh -c "chown -R rks:rks /home/$USERNAME"
+    # make sure all files in home dir are owned by user
+    buildah run "$cntr" -- /bin/sh -c "chown -R $USERNAME:$GROUPNAME /home/$USERNAME"
+    # set default user, entry-point and no cmd
     buildah config --user "$USERNAME" --entrypoint '["firefox", "-profile", "'"$FF_PROFILE_PATH"'"]' --cmd '' "$cntr"
+    # commit the container as image.
     buildah commit --rm  "$cntr" "$FF_IMAGE"
 }
 
