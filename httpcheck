@@ -62,12 +62,19 @@ Countdown()
 #---------[ main ]-------------------------------------------------------------
 timeout=$timeout_default
 
-eval "$(parseargs -o 't=timeout:Rr=[1-9][0-9]*' -- "$@")" || exit 1
+#eval "$(parseargs -o 't=timeout:Rr=[1-9][0-9]*' -- "$@")" || exit 1
+eval "$(parseargs -o 't=timeout' -- "$@")" || exit 1
 
 if [ $# -eq 0 ]; then
     echo >&2 "Usage: $script_name [-t timeout] URL "
     echo >&2 "   -t timeout  time between retries in seconds"
     echo >&2 "               Default: 60sec"
+    exit 1
+fi
+
+# validate timeout
+if [ -n "${timeout//[0-9]/}" ]; then
+    echo >&2 "Timeout is not a valid number: $timeout"
     exit 1
 fi
 
