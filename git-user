@@ -52,6 +52,9 @@ show_help()
     echo >&2 "Usage: $script_name -s"
     echo >&2 "   Determine repo-id from git remote and set user & email as specified in ${repoUserFile/$HOME/\~}"
     echo >&2 ""
+    echo >&2 "Usage: $script_name -q"
+    echo >&2 "   Query users from previous commits and offer as selection."
+    echo >&2 ""
     echo >&2 ""
     echo >&2 "Format of ${repoUserFile/$HOME/\~}:"
     echo >&2 "   :repo:<remote-url-part>:<repo-id>"
@@ -93,10 +96,32 @@ set_identity()
     execute git config --local user.email "$2"
 }
 
+query_user()
+{
+    mapfile -d$'\n' -t commit_users < <(git shortlog --summary --numbered --email)
+
+    local PS3="# or 'q' to quit? "
+    select entry in "${commit_users[@]}"; do
+        if [ -z "$entry" ]; then
+            if [ "$REPLY" = "q" ]; then
+                exit 0
+            fi
+        else
+            # shellcheck disable=SC2001
+            git_user="$(echo "$entry" | sed 's/^ *[0-9]\+\t\(.*\) <\([^>]\+\)>$/\1/')"
+            # shellcheck disable=SC2001
+            git_email="$(echo "$entry" | sed 's/^ *[0-9]\+\t\(.*\) <\([^>]\+\)>$/\2/')"
+            break
+        fi
+    done
+
+    set_identity "$git_user" "$git_email"
+}
+
 mode="list"
 force=""
 noop=""
-eval "$(parseargs -hn "git user" -o "l:list#mode=list,s:set#mode=set,d:detect#mode=detect,f:force#force,n:dry-run#noop" -- "$@")" || exit 7
+eval "$(parseargs -hn "git user" -o "l:list#mode=list,s:set#mode=set,q:query#mode=query,f:force#force,n:dry-run#noop" -- "$@")" || exit 7
 
 assertGitDir
 
@@ -107,11 +132,16 @@ if [ "$mode" = "list" ]; then
     echo "User:   $git_user"
     echo "Email:  $git_email"
     exit 0
-elif [ "$mode" = "detect" ]; then
-    last_author="$(git log --pretty="format:%an|%ae"  | head -n1)"
-    git_user="${last_author%%|*}"
-    git_email="${last_author##*|}"
-    set_identity "$git_user" "$git_email"
+elif [ "$mode" = "query" ]; then
+    if [ -n "$git_user" ] && [ -n "$git_email" ]; then
+        if [ -z "$force" ]; then
+            echo "User:   $git_user"
+            echo "Email:  $git_email"
+            echo >&2 "User and email already set. User '-f' to overwrite."
+            exit 1
+        fi
+    fi
+    query_user
 elif [ "$mode" = "set" ]; then
     if [ -n "$git_user" ] && [ -n "$git_email" ]; then
         if [ -z "$force" ]; then
@@ -143,9 +173,12 @@ elif [ "$mode" = "set" ]; then
 
         exit 1
     else
-        echo >&2 "ERROR: Net username and email to set identity."
+        echo >&2 "ERROR: Invalid number of arguments."
         exit 1
     fi
+else
+    echo >&2 "Invalid mode: '$mode' -- programming error"
+    exit 1
 fi
 
 
