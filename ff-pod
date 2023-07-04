@@ -38,6 +38,9 @@ GUID=$(id -g)
 FF_IMAGE="firefox.$USERNAME"
 BASE_IMAGE="registry.fedoraproject.org/fedora-minimal:37"
 
+# Maximum number of layers before image is recreated from base image
+MAX_LAYERS=5
+
 FF_PROFILE="pod"
 FF_PROFILE_PATH="$HOME/.mozilla/firefox/ff.$FF_PROFILE"
 
@@ -80,7 +83,23 @@ show_help()
     echo >&2 ""
 }
 
-check_for_image()
+assert_buildah_available()
+{
+    if ! command -v buildah >/dev/null; then
+        echo >&2 "ERROR: Command 'buildah' not available -- can't continue"
+        exit 1
+    fi
+}
+
+assert_podman_available()
+{
+    if ! command -v podman >/dev/null; then
+        echo >&2 "ERROR: Command 'podman' not available -- can't continue"
+        exit 1
+    fi
+}
+
+assert_image_exists()
 {
     if podman image exists "$FF_IMAGE"; then
         return
@@ -100,18 +119,29 @@ create_profile()
     /usr/bin/firefox --no-remote --CreateProfile "$profile $profile_path"
 
     for k in "${!USER_PREF[@]}"; do
-        printf 'user_pref(\"%s\", %s);' "$k" "${USER_PREF[$k]}" >> "$profile_path/user.js"
+        printf 'user_pref(\"%s\", %s);\n' "$k" "${USER_PREF[$k]}" >> "$profile_path/user.js"
     done
 }
 
 build_image()
 {
-    if ! command -v buildah >/dev/null; then
-        echo >&2 "ERROR: Command 'buildah' not available -- can't continue"
-        exit 1
+
+    local action
+    if podman image exists "$FF_IMAGE"; then
+        if [ "$(podman inspect "$FF_IMAGE" --format '{{len .RootFS.Layers}}')" -lt $MAX_LAYERS ]; then
+            echo "Image $FF_IMAGE exists, updating it."
+            action=update
+        else
+            echo "Image $FF_IMAGE exists, but already has to many layers - will create new"
+            action=new
+        fi
+    else
+        echo "Creating new image '$FF_IMAGE' ..."
+        action=new
     fi
 
-    if podman image exists "$FF_IMAGE"; then
+
+    if [ "$action" = "update" ]; then
         cntr="$(buildah from "$FF_IMAGE")"
         buildah run --user "$USERNAME:$GROUPNAME" "$cntr" -- rm -rf "$FF_PROFILE_PATH"
 
@@ -152,6 +182,7 @@ build_image()
     buildah copy --chown "$USERNAME:$GROUPNAME" "$cntr" "$FF_PROFILE_PATH" "$FF_PROFILE_PATH"
     # remove lock files to prevent "Firefox is already running but is not responding"
     buildah run "$cntr" -- rm -f "$FF_PROFILE_PATH/lock"  "$FF_PROFILE_PATH/.parentlock"
+    buildah run "$cntr" -- rm -rf "$FF_PROFILE_PATH/datareporting"
     # make sure all files in home dir are owned by user
     buildah run "$cntr" -- /bin/sh -c "chown -R $USERNAME:$GROUPNAME /home/$USERNAME"
     # set default user, entry-point and no cmd
@@ -224,16 +255,23 @@ run_pod()
 #---------[ MAIN ]-------------------------------------------------------------
 
 case "${1:-}" in
-    "update") update ;;
+    "update")
+        assert_buildah_available
+        assert_podman_available
+        update
+        ;;
     "inspect")
-        check_for_image
+        assert_podman_available
+        assert_image_exists
         inspect_image
         ;;
     "remove")
+        assert_podman_available
         podman image rm "$FF_IMAGE"
         ;;
     "")
-        check_for_image
+        assert_podman_available
+        assert_image_exists
         run_pod
         ;;
     '--help') show_help ;;
