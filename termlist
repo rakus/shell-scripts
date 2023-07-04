@@ -14,6 +14,8 @@ script_name="$(basename "$0")"
 DBUS_DEST=org.gnome.Terminal
 DBUS_OBJ_PATH=/org/gnome/Terminal/SearchProvider
 
+set -o pipefail
+
 # get UUIDs of all gnome-terminal tabs
 get_term_ids()
 {
@@ -23,6 +25,11 @@ get_term_ids()
         org.gnome.Shell.SearchProvider2.GetInitialResultSet \
         array:string:"" \
         | tail -n 1 | sed 's/^  *//;s/ *]$//;s/  */,/g'
+
+    if [[ $? -ne 0 ]]; then
+        echo >&2 "ERROR: Fetching terminals via DBUS failed."
+        exit 1
+    fi
 }
 
 # get "uuid - term-title" list
@@ -38,6 +45,11 @@ get_term_titles()
         -e 's/^ *id  *variant *\([^ ]*\) *)/id:\1/' \
         -e '/^id/{N;s/\n/ /;};s/^id://' \
         -e 's/  *name  *variant  */ /;s/  *)$//'
+
+    if [[ $? -ne 0 ]]; then
+        echo >&2 "ERROR: Fetching terminals titles via DBUS failed."
+        exit 1
+    fi
 }
 
 create_term_list()
@@ -45,7 +57,10 @@ create_term_list()
     typeset -A terminals
 
     while read -r id title; do
-        terminals[$id]="$title"
+        #echo >&2 ">>$id<<>>$title<<"
+        if [ -n "$id" ]; then
+            terminals[$id]="$title"
+        fi
     done <<< "$(get_term_titles)"
 
     # enrich terminal title with cwd if not already in the title
