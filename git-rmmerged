@@ -82,7 +82,7 @@ del_merged_remote()
 
     for br in   "${selected_branches[@]}"; do
         plain="${br#origin/}"
-        echo git push -d  origin "$plain"
+        git push -d  origin "$plain"
     done
     echo
     echo "Run 'git fetch --prune' to delete local references to deleted remote branches."
