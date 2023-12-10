@@ -9,13 +9,12 @@
 
 script_name="$(basename "$0")"
 
-
 if [ $# -ne 1 ]; then
     echo "Usage: $script_name <number-of-lines>"
     exit 1
 elif [ "$1" = "max" ]; then
     L=200
-elif [ $1 -eq $1 ] 2>/dev/null ; then
+elif [ "$1" -eq "$1" ] 2>/dev/null ; then
     L=$1
 elif [ "$1" = "-" ]; then
     L=32
@@ -26,5 +25,5 @@ fi
 
 eval "$(resize)"
 
-printf "[8;$L;${COLUMNS};t"
+printf "[8;%d;%d;t" "$L" "${COLUMNS}"
 

@@ -30,8 +30,7 @@ usage()
     exit 1
 }
 
-eval "$(parseargs -s sh -o "u#showUtc" -e usage -- "$@")"
-[ $? -ne 0 ] && exit 1
+eval "$(parseargs -s sh -o "u#showUtc" -e usage -- "$@")" || exit 1
 [ -n "$showUtc" ] && utc="-u"
 [ $# -eq 0 ] && usage
 secs=$1

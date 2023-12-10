@@ -116,6 +116,7 @@ installJar()
     # create MD5/SHA-1 checksums
     args+=( "-DcreateChecksum=true" )
 
+    # shellcheck disable=SC2155
     typeset pkg=$(getPackaging "$pomFile")
 
     if [ "$pkg" = "bundle" ]; then
@@ -145,6 +146,7 @@ installPom()
 getPackaging()
 {
     typeset pomFile="$1"
+    # shellcheck disable=SC2155
     typeset pkg=$(awk '/<packaging>/,/<\/packaging>/' "$1" | tr -d ' \t \n' | sed "s/<[^>]*>//g")
     if [ -n "$pkg" ]; then
         echo "$pkg"
@@ -160,6 +162,7 @@ isPomPom()
 {
     # extract packaging -- might be empty (default: jar)
     # Commands xmllint or xpath might produce errors or warnings
+    # shellcheck disable=SC2155
     typeset pkg=$(getPackaging "$1")
 
     if [ "$pkg" = "pom" ]; then

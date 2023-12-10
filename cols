@@ -7,7 +7,7 @@
 # AUTHOR: Ralf Schandl
 #
 
-script_name=$(basename "$0")
+script_name="$(basename "$0")"
 
 if [ $# -ne 1 ]; then
     echo "Usage: $script_name <number-of-columns>"

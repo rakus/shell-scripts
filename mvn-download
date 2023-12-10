@@ -143,6 +143,7 @@ fi
 
 runDir="$PWD"
 tmpDir="$(mktemp -d "$runDir/mvn-download-tmp-XXXXXX")"
+# shellcheck disable=SC2001
 zipFile="$runDir/$(echo "$1"| sed "s/::*/-/g")-dependencies.zip"
 
 cd "$tmpDir" || exit 1

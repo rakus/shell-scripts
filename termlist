@@ -26,6 +26,7 @@ get_term_ids()
         array:string:"" \
         | tail -n 1 | sed 's/^  *//;s/ *]$//;s/  */,/g'
 
+    # shellcheck disable=SC2181
     if [[ $? -ne 0 ]]; then
         echo >&2 "ERROR: Fetching terminals via DBUS failed."
         exit 1
@@ -46,6 +47,7 @@ get_term_titles()
         -e '/^id/{N;s/\n/ /;};s/^id://' \
         -e 's/  *name  *variant  */ /;s/  *)$//'
 
+    # shellcheck disable=SC2181
     if [[ $? -ne 0 ]]; then
         echo >&2 "ERROR: Fetching terminals titles via DBUS failed."
         exit 1

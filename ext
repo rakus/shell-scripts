@@ -265,6 +265,7 @@ function error
 # it. Then check if the program or function is available.
 # No checks about version or capabilities are done.
 #
+# shellcheck disable=SC2317
 function checkPrograms
 {
     echo "Checking programs ..."
@@ -570,14 +571,6 @@ function makedir
     fi
 }
 
-#
-# To be used as list command, if archive content can't be listed.
-#
-function listUnsupported
-{
-    echo >&2 "$1: Listing content not supported for this archive type."
-}
-
 function show_help
 {
     echo "Extracts arbitrary archives"
@@ -624,18 +617,9 @@ fi
 
 typeset -i verbose=0
 tgtDir=
-pargs=$(parseargs -hin ERROR -o "l#mode=listMode,L#mode=topLevelList,T#mode=testPrograms,d=tgtDir,D#mode=basenameDir,S#mode=singleDir,v+verbose" -- "$@")
-#echo >&2 "========================="
-#echo >&2 "$pargs"
-#echo >&2 "========================="
-eval "$pargs" || exit 1
+eval "$(parseargs -hin ERROR -o "l#mode=listMode,L#mode=topLevelList,D#mode=basenameDir,S#mode=singleDir,T#?checkPrograms(),d=tgtDir,v+verbose" -- "$@")" || exit 1
 
-if [ "$mode" = "testPrograms" ]; then
-    checkPrograms
-    exit 0
-fi
-
-if [ "$tgtDir" ] && [ $mode ]; then
+if [ -n "$tgtDir" ] && [ -n "$mode" ]; then
     echo >&2 "Can't use '-d' with other options"
     exit 1
 fi

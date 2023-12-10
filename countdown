@@ -85,7 +85,7 @@ while [[ $curTime -lt $endTime ]]; do
     rest=$((endTime-curTime))
     # shellcheck disable=SC2059 # Variable in printf format
     printf "\r$msg \e[K" $rest
-    if [ $noCancel ]; then
+    if [ -n "$noCancel" ]; then
         sleep 1
     else
         read -r -st1 -n1 esc

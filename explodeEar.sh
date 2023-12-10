@@ -47,6 +47,7 @@ if [ ! -r "$fqFile" ]; then
 fi
 
 file=$(basename "$fqFile")
+# shellcheck disable=SC2001
 exploddir=$(echo "$file" | sed "s/\.[^\.]*$//")
 
 echo "Exploding $fqFile"
