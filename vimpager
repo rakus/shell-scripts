@@ -10,6 +10,7 @@ if [ ! -t 1 ]; then
 	exec cat "$@"
 fi
 
+
 case $(uname -s) in
 	Linux) linux=1 ;;
 	SunOS) solaris=1 ;;
@@ -87,10 +88,15 @@ less_vim() {
 
 	rm -f gvim.exe.stackdump # for cygwin gvim, which can be part of vim
 
+	vim_base_cfg='set scrolloff=5 | runtime! macros/less.vim | set foldlevel=999 | set mouse=h | set nonu'
+	if [ -n "$MAN_PN" ]; then
+		vim_base_cfg="$vim_base_cfg | let &titlestring='Man Page - $MAN_PN'"
+	fi
+
 	case $vim_cmd in
 		vim*)
 			$vim_cmd --noplugin \
-			-c 'set scrolloff=5 | runtime! macros/less.vim | set foldlevel=999 | set mouse=h | set nonu' \
+			-c "$vim_base_cfg" \
 			-c 'nmap <ESC>u :nohlsearch<cr>' \
 			"${@:--}"
 			;;
@@ -135,7 +141,7 @@ less_vim() {
 			fi
 
 			$vim_cmd --noplugin \
-			-c 'set scrolloff=5 | runtime! macros/less.vim | set foldlevel=999 | set mouse=h | set nonu' \
+			-c "$vim_base_cfg" \
 			-c 'nmap <ESC>u :nohlsearch<cr>' \
 			-c "${colors:-echo}" \
 			-c "${restore:-echo}" \
