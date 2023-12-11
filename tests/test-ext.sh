@@ -39,6 +39,7 @@
 script_dir=$(cd "$(dirname "$0")" 2>/dev/null && echo "$PWD")
 script_name=$(basename "$0")
 
+cd "$script_dir" || exit 1
 
 echo "--------------------------------------"
 echo "Test script: $script_name"
@@ -528,11 +529,11 @@ echo""
 
 msg "---------[ Test RC and output ]-----------------------------------------------"
 testRcMsg "$extract" 0 "Extracts arbitrary archives"
-#testRcMsg "$extract -?" 0 "Extracts arbitrary archives"
+testRcMsg "$extract -?" 1 "ERROR: Unknown option: -?"
 testRcMsg "$extract --help" 0 "Extracts arbitrary archives"
-testRcMsg "$extract -d" 1 "ERROR: Missing argument for option '-d'"
-testRcMsg "$extract -x" 1 "ERROR: Unknown option: '-x'"
-testRcMsg "$extract -D -x" 1 "ERROR: Unknown option: '-x'"
+testRcMsg "$extract -d" 1 "RROR: Missing argument for: -d"
+testRcMsg "$extract -x" 1 "ERROR: Unknown option: -x"
+testRcMsg "$extract -D -x" 1 "ERROR: Unknown option: -x"
 testRcMsg "$extract -D -- -x" 1 "ERROR: File not found: -x"
 testRcMsg "$extract halodrin" 1 "ERROR: File not found: halodrin"
 testRcMsg "$extract -D -d xy" 1 "Can't use '-d' with other options"
