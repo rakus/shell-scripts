@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+#
+# FILE: upfind
+#
+# ABSTRACT: Find file(s) upward
+#
+# Searches for files or directories upwards in the directory tree.
+#
+# AUTHOR: Ralf Schandl
+#
+# CREATED: 2023-12-16
+#
+
+script_name="$(basename "$0")"
+
+
+search()
+{
+    local dir="$1"
+
+    if [[ -n "$REVERSE" && -n "$dir" && "${dir:-/}" != "$STOPDIR" ]]; then
+        search "${dir%/*}"
+    fi
+
+    readarray -d '' result < <(find "${dir}/" -mindepth 1 -maxdepth 1 "${FIND_EXPR[@]}" -print0 )
+    if [ ${#result[*]} -gt 0 ]; then
+
+        exit_code=0
+
+        if [ -z "$PRINT_DIR" ]; then
+            if [ -n "$RELATIVE" ]; then
+                for i in "${!result[@]}"; do
+                    result[i]="$(realpath -s --relative-to="${PWD}" "${result[i]}")"
+                done
+            fi
+
+            # shellcheck disable=SC2059 # printf format is variable
+            printf "$PRINTF_FMT" "${result[@]}"
+        else
+            if [ -n "$RELATIVE" ]; then
+                # shellcheck disable=SC2059 # printf format is variable
+                printf "$PRINTF_FMT" "$(realpath --relative-to="${PWD}" "${dir:-/}")"
+            else
+                # shellcheck disable=SC2059 # printf format is variable
+                printf "$PRINTF_FMT" "${dir:-/}"
+            fi
+        fi
+        if [ -z "$FIND_ALL" ]; then
+            return
+        fi
+    fi
+
+    if [[ -z "$REVERSE" && -n "$dir" && "${dir:-/}" != "$STOPDIR" ]]; then
+        search "${dir%/*}"
+    fi
+}
+
+# shellcheck disable=SC2317
+show_help()
+{
+    echo "USAGE: $script_name [OPTIONS] <file-pattern>..."
+    echo "    -f, --file            only search for files. Default."
+    echo "    -d, --directory       only search for directories"
+    echo "    -a, --all             search for files and directories"
+    echo "    -s, --stop-dir <dir>  stop searching at given parent dir. If given dir is"
+    echo "                          not a parent directory of the current dir, searches"
+    echo "                          up to file system root."
+    echo "    -h, --home            short for '--stop-dir=\$HOME'"
+    echo "    -c, --continue        don't stop after first match(es)"
+    echo "    -D, --print-directory print directory of found file"
+    echo "    -r, --relative        print relative path"
+    echo "    -0, --print0          print NUL instead of newline"
+    echo "    -L, --logical         traverse the logical path. Default behavior."
+    echo "    -P, --physical        traverse the physical path (aka resolve symlinks)"
+    echo "    -R, --reverse         reverse order -- farthest file first,"
+    echo "                          implies --continue"
+    echo ""
+    echo "NOTE: Order of printed files might differ from order of given file-pattern."
+}
+
+#---------[ MAIN ]-------------------------------------------------------------
+
+type=f
+eval "$(parseargs -n "$script_name" -ho "f:file#type=f,d:directory#type=d,a:all#type=" \
+    -o "D:print-directory#PRINT_DIR,0:print0#print0,r:relative#RELATIVE" \
+    -o "s:stop-dir=STOPDIR,h:home#stop_home" \
+    -o "c:continue#FIND_ALL" \
+    -o "P:physical#physical=true,L:logical#physical=" \
+    -o "R:reverse#REVERSE" -- "$@")"
+
+if [ $# -eq 0 ]; then
+    echo >&2 "$script_name: file-pattern missing"
+    exit 1
+fi
+
+# get current dir, resolve symlinks if requested
+dir="$(pwd ${physical:+-P})"
+
+if [ -n "$stop_home" ]; then
+    if [ -n "$STOPDIR" ]; then
+        echo "$script_name: Options are mutual exclusive: -s/--stop-dir, -h/--home"
+        exit 1
+    fi
+    STOPDIR="$HOME"
+fi
+if [[ -n "$STOPDIR" && $STOPDIR != /* ]]; then
+    STOPDIR="$PWD/$STOPDIR"
+fi
+# make STOPDIR absolute, resolve symlinks if requested
+STOPDIR="$(realpath -s ${physical:+-P} "${STOPDIR:-/}")"
+#echo "STOPDIR: $STOPDIR"
+
+# build name expression for find
+typeset -a FIND_EXPR
+FIND_EXPR=( \( )
+for n in "$@"; do
+    [ ${#FIND_EXPR[*]} -gt 1 ] && FIND_EXPR+=( -o )
+    FIND_EXPR+=( -name "$n" )
+done
+FIND_EXPR+=( \) )
+
+if [ -n "$type" ]; then
+    FIND_EXPR+=( -xtype "$type" )
+fi
+
+if [ -z "$print0" ];then
+    PRINTF_FMT='%s\n'
+else
+    PRINTF_FMT='%s\0'
+fi
+
+exit_code=1
+
+search "$dir"
+
+exit $exit_code
+
